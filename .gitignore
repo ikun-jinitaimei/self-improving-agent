@@ -1,0 +1,16 @@
+# Python 虚拟环境
+agent_env/
+
+# Python 字节码缓存
+__pycache__/
+*.pyc
+
+# 本地密钥文件
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 本地实验包含模型生成代码和轨迹，审阅后再选择性分享。
+runs/

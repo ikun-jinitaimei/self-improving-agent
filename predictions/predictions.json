@@ -1,0 +1,23 @@
+[
+  {
+    "task_id": "task_001",
+    "answer": {
+      "region": "South",
+      "sales_amount": 23478.005
+    }
+  },
+  {
+    "task_id": "task_002",
+    "answer": {
+      "year_month": "2026-01",
+      "sales_amount": 42200.0
+    }
+  },
+  {
+    "task_id": "task_003",
+    "answer": {
+      "column": "product",
+      "missing_count": 2
+    }
+  }
+]

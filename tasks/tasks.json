@@ -1,0 +1,56 @@
+[
+  {
+    "task_id": "task_001",
+    "input": {
+      "question": "Which region has the highest total sales amount? Calculate each row's sales amount as quantity multiplied by unit_price.",
+      "data_file": "data/sales.csv",
+      "answer_format": {
+        "region": "string",
+        "sales_amount": "number"
+      }
+    },
+    "evaluation": {
+      "reference_answer": {
+        "region": "South",
+        "sales_amount": 23478.0
+      },
+      "numeric_tolerance": 0.01
+    }
+  },
+  {
+    "task_id": "task_002",
+    "input": {
+      "question": "What is the total sales amount for January 2026? Calculate each row's sales amount as quantity multiplied by unit_price.",
+      "data_file": "data/sales.csv",
+      "answer_format": {
+        "year_month": "string",
+        "sales_amount": "number"
+      }
+    },
+    "evaluation": {
+      "reference_answer": {
+        "year_month": "2026-01",
+        "sales_amount": 42200.0
+      },
+      "numeric_tolerance": 0.01
+    }
+  },
+  {
+    "task_id": "task_003",
+    "input": {
+      "question": "Which column contains the most missing values, and how many missing values does it contain?",
+      "data_file": "data/sales.csv",
+      "answer_format": {
+        "column": "string",
+        "missing_count": "integer"
+      }
+    },
+    "evaluation": {
+      "reference_answer": {
+        "column": "product",
+        "missing_count": 2
+      },
+      "numeric_tolerance": 0
+    }
+  }
+]
