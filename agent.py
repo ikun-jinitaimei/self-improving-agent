@@ -5,8 +5,8 @@
 任务输入 -> 调用 DeepSeek -> 执行工具 -> 返回 observation
          -> 再次调用 DeepSeek -> 得到最终 JSON 答案
 
-run_agent 通过 checkpoint 回调交出可保存的轨迹；run_benchmark.py 负责具体
-写文件、批量实验和评分。单题命令行入口也会调用保存函数，留下本次轨迹。
+run_agent 通过 checkpoint 回调交出轨迹；run_benchmark.py 组织批量实验和评分。
+独立的 run_io.py 负责写文件，单题和批量入口都能复用，不产生双向依赖。
 """
 
 import json
@@ -18,9 +18,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+from openai import APIError, OpenAI
 
-from tools import execute_tool, validate_tool_arguments
+from run_io import create_run_directory, write_json
+from tools import execute_tool
 
 
 # 无论从哪个工作目录启动 agent.py，都以本文件所在目录作为项目根目录。
@@ -150,20 +151,6 @@ def build_user_message(task_input: dict[str, Any]) -> str:
     )
 
 
-def parse_tool_arguments(arguments_text: str) -> dict[str, Any]:
-    """把模型生成的 JSON 参数文本转换为 Python 字典。"""
-    try:
-        arguments = json.loads(arguments_text)
-    except json.JSONDecodeError as error:
-        # 参数格式错误也要变成 observation 返回模型，而不是让程序直接崩溃。
-        return {"_argument_error": f"invalid JSON arguments: {error.msg}"}
-
-    if not isinstance(arguments, dict):
-        return {"_argument_error": "tool arguments must be a JSON object"}
-
-    return arguments
-
-
 def parse_final_answer(
     content: str,
     answer_format: dict[str, str],
@@ -265,8 +252,9 @@ def run_agent(
                 tools=TOOL_DEFINITIONS, stream=False, temperature=0, max_tokens=2048,
                 extra_body={"thinking": {"type": "disabled"}},
             )
-        except Exception as error:
+        except APIError as error:
             # 不保存原始 HTTP 错误体/请求头，以免将凭据写入实验文件。
+            # 只捕获 SDK 的 API 异常，TypeError 等内部错误保留 traceback。
             result["usage_complete"] = False
             return fail("api_error", type(error).__name__)
         result["responses_received"] += 1
@@ -308,29 +296,29 @@ def run_agent(
         # 一次模型回复可能同时请求多个工具，因此这里逐个执行。
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
-            arguments = parse_tool_arguments(tool_call.function.arguments)
-
-            argument_error = arguments.get("_argument_error") or validate_tool_arguments(tool_name, arguments)
-            if argument_error:
-                observation = f"ToolError: {argument_error}"
-                result["invalid_tool_calls"] += 1
-            else:
-                try:
-                    observation = execute_tool(tool_name, arguments)
-                except Exception as error:
-                    observation = f"ToolError: {type(error).__name__}"
-            # STDERR 也可能只是警告；仅非零退出码或 ToolError 算执行失败。
-            execution_failed = not argument_error and (
-                observation.startswith("ToolError:") or "\nEXIT CODE:" in observation)
-            result["execution_failures"] += int(bool(execution_failed))
+            # 原始 JSON 参数交给工具入口统一解析和校验。保留原文便于分析坏调用。
+            arguments = tool_call.function.arguments
+            tool_result = execute_tool(tool_name, arguments)
+            observation = tool_result["observation"]
+            invalid = tool_result["status"] == "invalid_arguments"
+            failed = tool_result["status"] == "execution_error"
+            result["invalid_tool_calls"] += int(invalid)
+            result["execution_failures"] += int(failed)
             result["tool_calls"] += 1
-            result["events"].append({"step": step, "type": "tool",
-                "tool_call_id": tool_call.id, "name": tool_name, "arguments": arguments,
-                "observation": observation, "invalid_arguments": bool(argument_error),
-                "execution_failed": bool(execution_failed)})
+            result["events"].append({
+                "step": step,
+                "type": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_name,
+                "arguments": arguments,
+                "observation": observation,
+                "status": tool_result["status"],
+                "invalid_arguments": invalid,
+                "execution_failed": failed,
+            })
 
             print(f"Action: {tool_name}")
-            print(f"Arguments: {json.dumps(arguments, ensure_ascii=False)}")
+            print(f"Arguments: {arguments}")
             print(f"Observation:\n{observation}")
 
             # role='tool' 的消息就是环境反馈。tool_call_id 用来告诉模型，
@@ -351,12 +339,11 @@ def main() -> None:
     """命令行入口：默认运行 task_001，也可以在命令后指定 task_id。"""
     task_id = sys.argv[1] if len(sys.argv) > 1 else "task_001"
     task_input = load_task(task_id)
-    client = create_client()
-    # 命令行单题运行也写日志。局部导入避免 agent 与 runner 的模块级循环导入。
-    from run_benchmark import create_run_directory, write_json
+    # 保存模块独立于 Agent 和 runner，单题运行也可以直接复用。
     output_dir = create_run_directory(PROJECT_ROOT / "runs")
-    result = run_agent(client, task_input, checkpoint=lambda record: write_json(
-        output_dir / f"{task_id}.json", {"task_id": task_id, "input": task_input, **record}))
+    with create_client() as client:
+        result = run_agent(client, task_input, checkpoint=lambda record: write_json(
+            output_dir / f"{task_id}.json", {"task_id": task_id, "input": task_input, **record}))
 
     print("\n=== Final Answer ===")
     print(json.dumps(result["answer"], ensure_ascii=False, indent=2))

@@ -19,6 +19,7 @@
 | tools.py | 列文件、执行 Python、参数检查及超时 |
 | evaluate.py | 用标准答案逐字段评分，数值允许给定误差 |
 | run_benchmark.py | 批量运行、逐步保存轨迹、评分、汇总 |
+| run_io.py | 独立的实验目录创建与 JSON 保存，供两个入口复用 |
 | tests/test_agent.py | 不联网的循环、错误恢复、工具和批量流程测试 |
 | tests/test_evaluate.py | 评估器单元测试 |
 | test_deepseek_api.py | 早期单次连接测试，不是 benchmark |
@@ -67,6 +68,8 @@ PowerShell 5.1 和 PowerShell 7，输入不会明文显示，也不会写到源�
 
 每次请求前、回复后、工具执行后都保存检查点。异常或步数耗尽返回 failed，
 保留当时轨迹；正常提交返回 completed，仍需评分才能确定答案是否正确。
+这里的异常处理针对 API 错误、文件操作失败及超时等外部问题；内部编程错误
+保留 traceback，不会包装成模型失败。此时磁盘检查点可能仍显示 running。
 强行关闭进程可能留下 running 状态，那表示未完成，不能当作完整成绩。
 终端单独执行 agent.py 也保存轨迹，但只有 benchmark 命令负责自动评分。
 
@@ -76,6 +79,13 @@ invalid_tool_calls 统计参数 JSON、类型、范围或名称错误；executio
 usage 缺失用 null，部分缺失时 usage_complete=false；已知 token 仅为下界，
 不能当作全部费用。耗时包含请求和工具执行，但不包含批次启动及最终评分。
 平均步数统计已结束的全部题，失败题也计入。重试没有实现，不报告假重试数据。
+
+工具入口统一解析和校验参数，返回 status 与 observation。状态来自真实执行
+结果，不从输出文字推断。轨迹中的工具事件增加 status；arguments 保存模型的
+原始 JSON 字符串，方便检查非法参数。先前实验中的 arguments 字典仍保留原样。
+
+本次代码整理后的离线测试为 19 个，包含输出文字误判、内部编程错误传播、
+文件错误及独立汇总验证；此前真实 baseline 的 3/3 是整理前版本的实验成绩。
 
 验收命令：
 

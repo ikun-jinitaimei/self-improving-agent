@@ -25,6 +25,10 @@ The experiment runner saves trajectories and evaluates answers after execution.
 - Keep conversational explanations concise unless a detailed walkthrough is requested.
 - Distinguish software-engineering, LLM, Agent and RL concepts.
 - Prefer explicit, readable Python and visible mechanisms over framework abstractions.
+- Keep code concise: validate external inputs once at a clear boundary, and let internal
+  programming errors surface instead of masking them with broad exception handlers.
+- Keep responsibilities separate and edits within the requested scope; preserve detailed
+  comments explaining decisions without redundant line-by-line narration.
 - Preserve existing user changes; verify edits by reading the saved files.
 
 ## Research and evaluation

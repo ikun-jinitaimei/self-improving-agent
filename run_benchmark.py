@@ -10,38 +10,14 @@ import hashlib
 import importlib.metadata
 import json
 import os
-from pathlib import Path
 import re
 import sys
 from datetime import datetime, timezone
-from uuid import uuid4
+from pathlib import Path
 
 from agent import DEFAULT_MODEL, PROJECT_ROOT, create_client, run_agent
 from evaluate import evaluate_tasks, load_json_array, print_report
-
-
-def create_run_directory(root: Path) -> Path:
-    """时间方便人阅读，随机后缀避免同一秒运行两次时覆盖旧结果。"""
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    directory = root / f"{stamp}_{uuid4().hex[:8]}"
-    directory.mkdir(parents=True, exist_ok=False)
-    return directory
-
-
-def write_json(path: Path, value: object) -> None:
-    """先完整写临时文件，再替换目标，降低中途退出留下半个 JSON 的可能。
-
-    ensure_ascii=False 保留可读中文；allow_nan=False 拒绝不规范的数字。
-    回调反复保存的是同一题的最新状态，不会新建大量零碎文件。
-    """
-    text = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False)
-    # 防止当前密钥被意外嵌入错误信息。不要依靠它替代执行环境隔离。
-    secret = os.environ.get("DEEPSEEK_API_KEY")
-    if secret:
-        text = text.replace(secret, "[REDACTED]")
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(text + "\n", encoding="utf-8")
-    temporary.replace(path)
+from run_io import create_run_directory, write_json
 
 
 def validate_tasks(tasks: list[dict]) -> None:
@@ -67,22 +43,57 @@ def validate_tasks(tasks: list[dict]) -> None:
             raise ValueError(f"{task_id} 公开格式与标准答案字段不一致")
 
 
-def run_benchmark(client, tasks: list[dict], output_root: Path,
-                  model: str = DEFAULT_MODEL, max_steps: int = 6) -> Path:
+def summarize_results(records: list[dict], task_count: int) -> dict:
+    """汇总至少一道已结束任务的记录；调用者在每题完成后使用。
+
+    失败题也计入分母。缺失 token 数据保持未知，不把已知部分当成总费用。
+    此函数只计算结果，不执行任务、不读写文件，便于单独验证统计口径。
+    """
+    results = [record["evaluation"] for record in records]
+    passed = sum(item["passed"] for item in results)
+    known_usage = [record["usage"] for record in records if record["usage"] is not None]
+    return {
+        "status": "completed" if len(records) == task_count else "running",
+        "task_count": task_count, "tasks_finished": len(records),
+        "passed": passed, "success_rate": passed / task_count,
+        "failed_tasks": [item["task_id"] for item in results if not item["passed"]],
+        "average_steps": sum(r["steps"] for r in records) / len(records),
+        "tool_calls": sum(r["tool_calls"] for r in records),
+        "invalid_tool_calls": sum(r["invalid_tool_calls"] for r in records),
+        "execution_failures": sum(r["execution_failures"] for r in records),
+        "latency_seconds": sum(r["latency_seconds"] for r in records),
+        "usage": ({key: sum(u[key] for u in known_usage) for key in known_usage[0]}
+                  if known_usage else None),
+        "usage_complete": all(r["usage_complete"] for r in records),
+        "results": results,
+    }
+
+
+def run_benchmark(
+    client,
+    tasks: list[dict],
+    output_root: Path,
+    model: str = DEFAULT_MODEL,
+    max_steps: int = 6,
+) -> Path:
     """逐题执行，失败题也进入分母，避免只统计成功交卷的题而夸大成绩。
 
     client 可以是真实 SDK，也可以是测试替身。替身仅用于验证工程流程，不能
     把测试得到的分数称为 DeepSeek baseline。
     """
     validate_tasks(tasks)
-    if type(max_steps) is not int or max_steps < 1:
-        raise ValueError("max_steps 必须为正整数")
     directory = create_run_directory(output_root)
     print(f"Run directory: {directory}")
     # manifest 固定本次任务和运行配置。代码/数据哈希用于辨别版本是否变化；
     # 这里保存代码文本快照，使尚未 git commit 的实验也能回溯到具体实现。
-    source_names = ["agent.py", "tools.py", "evaluate.py", "run_benchmark.py", "requirements.txt"]
-    sources = {name: (PROJECT_ROOT / name).read_text(encoding="utf-8") for name in source_names}
+    source_names = [
+        "agent.py", "tools.py", "evaluate.py", "run_benchmark.py",
+        "run_io.py", "requirements.txt",
+    ]
+    sources = {
+        name: (PROJECT_ROOT / name).read_text(encoding="utf-8")
+        for name in source_names
+    }
     data_hashes = {}
     for task in tasks:
         path = (PROJECT_ROOT / task["input"]["data_file"]).resolve()
@@ -105,8 +116,9 @@ def run_benchmark(client, tasks: list[dict], output_root: Path,
             # 只有 input 进入模型；evaluation 由本地 evaluator 在结束后使用。
             write_json(trace_path, {"task_id": task_id, "input": task["input"], **record})
 
-        result = run_agent(client, task["input"], max_steps=max_steps,
-                           model=model, checkpoint=save)
+        result = run_agent(
+            client, task["input"], max_steps=max_steps, model=model, checkpoint=save
+        )
         prediction = {"task_id": task_id, "answer": result["answer"]}
         evaluation = evaluate_tasks([task], [prediction] if result["answer"] is not None else [])[0]
         result["evaluation"] = evaluation
@@ -116,24 +128,7 @@ def run_benchmark(client, tasks: list[dict], output_root: Path,
             predictions.append(prediction)
         write_json(directory / "predictions.json", predictions)
         # 每题完成后更新汇总；批次中断时已完成题目的成绩仍然存在。
-        results = [record["evaluation"] for record in records]
-        passed = sum(item["passed"] for item in results)
-        known_usage = [record["usage"] for record in records if record["usage"] is not None]
-        summary = {
-            "status": "completed" if len(records) == len(tasks) else "running",
-            "task_count": len(tasks), "tasks_finished": len(records),
-            "passed": passed, "success_rate": passed / len(tasks),
-            "failed_tasks": [item["task_id"] for item in results if not item["passed"]],
-            "average_steps": sum(r["steps"] for r in records) / len(records),
-            "tool_calls": sum(r["tool_calls"] for r in records),
-            "invalid_tool_calls": sum(r["invalid_tool_calls"] for r in records),
-            "execution_failures": sum(r["execution_failures"] for r in records),
-            "latency_seconds": sum(r["latency_seconds"] for r in records),
-            "usage": ({key: sum(u[key] for u in known_usage) for key in known_usage[0]}
-                      if known_usage else None),
-            "usage_complete": all(r["usage_complete"] for r in records),
-            "results": results,
-        }
+        summary = summarize_results(records, len(tasks))
         write_json(directory / "summary.json", summary)
     print_report(summary["results"])
     return directory
@@ -149,7 +144,6 @@ def main() -> int:
     tasks = load_json_array(PROJECT_ROOT / "tasks" / "tasks.json")
     if args.task_id:
         tasks = [t for t in tasks if t["task_id"] == args.task_id]
-    validate_tasks(tasks)
     try:
         client = create_client()
     except RuntimeError as error:

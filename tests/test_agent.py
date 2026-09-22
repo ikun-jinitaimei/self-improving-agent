@@ -15,10 +15,13 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import httpx2
+from openai import APIConnectionError
 from openai.types.chat import ChatCompletion
 
 from agent import load_task, parse_final_answer, run_agent
-from run_benchmark import run_benchmark, write_json
+from run_benchmark import run_benchmark, summarize_results
+from run_io import write_json
 from tools import execute_tool
 
 
@@ -97,7 +100,8 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result["trajectory"][-1]["role"], "tool")
 
     def test_api_failure_preserves_prior_trace(self):
-        result = run_agent(FakeClient([reply(name="list_files"), RuntimeError("private HTTP body")]), self.task)
+        error = APIConnectionError(request=httpx2.Request("POST", "https://example.test"), message="private HTTP body")
+        result = run_agent(FakeClient([reply(name="list_files"), error]), self.task)
         self.assertEqual(result["error"]["type"], "api_error")
         self.assertEqual(result["tool_calls"], 1)
         self.assertNotIn("private HTTP body", json.dumps(result))
@@ -121,15 +125,15 @@ class AgentTests(unittest.TestCase):
 
     def test_tool_validation_timeout_and_secret_environment(self):
         for args in ({"directory": 3}, {"unexpected": 1}):
-            self.assertTrue(execute_tool("list_files", args).startswith("ToolError"))
-        self.assertIn("unknown tool", execute_tool("unknown", {}))
-        self.assertIn("integer", execute_tool("run_python", {"code": "pass", "timeout_seconds": True}))
+            self.assertEqual(execute_tool("list_files", args)["status"], "invalid_arguments")
+        self.assertIn("unknown tool", execute_tool("unknown", {})["observation"])
+        self.assertIn("integer", execute_tool("run_python", {"code": "pass", "timeout_seconds": True})["observation"])
         self.assertIn("exceeded", execute_tool("run_python", {
-            "code": "import time; time.sleep(3)", "timeout_seconds": 1}))
+            "code": "import time; time.sleep(3)", "timeout_seconds": 1})["observation"])
         with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-only-secret"}):
             result = execute_tool("run_python", {
                 "code": "import os; print('DEEPSEEK_API_KEY' in os.environ)"})
-        self.assertIn("False", result)
+        self.assertIn("False", result["observation"])
 
     def test_benchmark_continues_after_failure_and_does_not_overwrite(self):
         tasks = [{"task_id": f"task_{i}", "input": self.task,
@@ -137,7 +141,8 @@ class AgentTests(unittest.TestCase):
                  for i in (1, 2)]
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            client = FakeClient([RuntimeError("offline failure"), reply(name="list_files"), reply(self.answer)])
+            error = APIConnectionError(request=httpx2.Request("POST", "https://example.test"))
+            client = FakeClient([error, reply(name="list_files"), reply(self.answer)])
             first = run_benchmark(client, tasks, root, model="offline-test-model")
             summary = json.loads((first / "summary.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["success_rate"], .5)
@@ -148,6 +153,49 @@ class AgentTests(unittest.TestCase):
                                    tasks[:1], root, model="offline-test-model")
             self.assertNotEqual(first, second)
             self.assertTrue((first / "summary.json").exists())
+
+    def test_error_words_in_stdout_do_not_mean_failure(self):
+        # 真正启动子进程，验证状态取自退出码，而不是 stdout 中的错误字样。
+        code = "print('EXIT CODE: 1'); print('ToolError: example')"
+        client = FakeClient([
+            reply(name="run_python", arguments=json.dumps({"code": code})),
+            reply(self.answer),
+        ])
+        result = run_agent(client, self.task)
+        self.assertEqual(result["execution_failures"], 0)
+        self.assertEqual(result["events"][1]["status"], "success")
+
+    def test_programming_errors_are_not_converted_to_external_failures(self):
+        # 自己的程序错误应直接暴露，不能伪装成模型/API/执行环境的失败。
+        with self.assertRaises(TypeError):
+            run_agent(FakeClient([TypeError("wrong SDK argument")]), self.task)
+        with patch("tools.list_files", side_effect=TypeError("internal bug")):
+            with self.assertRaises(TypeError):
+                execute_tool("list_files", {})
+
+    def test_file_errors_are_execution_errors(self):
+        for directory in ("../tasks", "sales.csv", "__missing_test_directory__"):
+            with self.subTest(directory=directory):
+                result = execute_tool("list_files", {"directory": directory})
+                self.assertEqual(result["status"], "execution_error")
+
+    def test_summary_includes_failures_and_unknown_usage(self):
+        # 纯统计函数无需模型或文件。失败题进入平均步数和成功率的分母。
+        records = [
+            {"evaluation": {"task_id": "task_1", "passed": False}, "steps": 1,
+             "tool_calls": 0, "invalid_tool_calls": 0, "execution_failures": 0,
+             "latency_seconds": .5, "usage": None, "usage_complete": False},
+            {"evaluation": {"task_id": "task_2", "passed": True}, "steps": 3,
+             "tool_calls": 2, "invalid_tool_calls": 1, "execution_failures": 0,
+             "latency_seconds": 1.5,
+             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+             "usage_complete": True},
+        ]
+        summary = summarize_results(records, 2)
+        self.assertEqual(summary["success_rate"], .5)
+        self.assertEqual(summary["average_steps"], 2)
+        self.assertFalse(summary["usage_complete"])
+        self.assertEqual(summary["usage"]["total_tokens"], 15)
 
     def test_writer_redacts_current_key(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"DEEPSEEK_API_KEY": "fake-secret"}):
