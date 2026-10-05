@@ -1,0 +1,26 @@
+name: Offline tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e .
+      - run: python -X utf8 -m unittest discover -s tests -v
+      - run: agent-lab demo --split dev --task-id task_dev_7_monthly
+      # 此工作流不使用 API Key；不能把 CI 通过称为真实模型评测通过。

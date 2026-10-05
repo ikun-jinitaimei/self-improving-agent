@@ -10,6 +10,20 @@ from pathlib import Path
 from uuid import uuid4
 
 
+def append_event(path: Path, event: dict, *, secrets: tuple[str, ...] = ()) -> None:
+    """追加一条 JSONL 事件并关闭文件；事件不是模型消息，也不执行代码。
+
+    JSON 快照仍是恢复/分析的主记录；强制关机可能留下最后一条不完整 JSONL，
+    所以不能把 append 宣称为数据库事务。私有文件 Key 通过显式参数脱敏。
+    """
+    text = json.dumps(event, ensure_ascii=False, allow_nan=False)
+    for value in (*secrets, os.environ.get("DEEPSEEK_API_KEY", "")):
+        if value:
+            text = text.replace(value, "[REDACTED]")
+    with path.open("a", encoding="utf-8") as file:
+        file.write(text + "\n")
+
+
 def create_run_directory(root: Path) -> Path:
     """时间方便人阅读，随机后缀避免同一秒运行两次时覆盖旧结果。"""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -18,7 +32,7 @@ def create_run_directory(root: Path) -> Path:
     return directory
 
 
-def write_json(path: Path, value: object) -> None:
+def write_json(path: Path, value: object, *, secrets: tuple[str, ...] = ()) -> None:
     """先完整写临时文件，再替换目标，降低中途退出留下半个 JSON 的可能。
 
     ensure_ascii=False 保留可读中文；allow_nan=False 拒绝不规范的数字。
@@ -29,6 +43,9 @@ def write_json(path: Path, value: object) -> None:
     secret = os.environ.get("DEEPSEEK_API_KEY")
     if secret:
         text = text.replace(secret, "[REDACTED]")
+    for item in secrets:
+        if item:
+            text = text.replace(item, "[REDACTED]")
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(text + "\n", encoding="utf-8")
     temporary.replace(path)

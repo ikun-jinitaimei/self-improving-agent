@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "self-improving-agent-lab"
+version = "0.2.1"
+description = "A transparent tool-calling agent with reproducible verification experiments"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["openai==3.13.0"]
+
+[project.scripts]
+agent-lab = "demo:cli"
+
+[tool.setuptools]
+py-modules = [
+  "agent", "tools", "evaluate", "run_io", "run_benchmark",
+  "benchmark_suite", "execution", "offline_model", "experiments", "reporting", "demo",
+  "providers", "sessions"
+]

@@ -1,108 +1,149 @@
-# Self-Improving Agent — V0
+# Self-Improving Agent Lab
 
-当前目标：在 3 个小型 CSV 任务上，完成工具调用、轨迹保存、自动评估的闭环。
-这是一套受控本地冒烟测试，尚不能证明泛化能力或自我改进。
+一个可读、可复现的工具调用 Agent 实验项目：CSV 任务 → 模型决策 → 工具执行 → 反馈 → 候选答案 → 可选复核 → 确定性评分 → 轨迹与配对报告。
 
-2026-09-22 首次真实运行：3/3 通过，7 次模型请求、5 次工具调用、无执行错误。
-详细指标及局限见 [BASELINE_RESULTS.md](BASELINE_RESULTS.md)。
+当前是独立研究候选版 v0.2.1：可接受自由 CSV 问题、配置兼容模型端点，并组织真实对照实验。V0 原工作区与提交 `d40a3b2` 保留不动。Self-Improving 是研究方向，**尚未实现参数学习、记忆学习或 RL**；复核是测试时计算策略，不是训练。
 
-## 当前架构与文件
+## 两分钟离线演示
 
-运行流程：任务公开输入 → agent.py → DeepSeek → tools.py → observation →
-下一次模型请求 → 最终答案 → evaluate.py → 保存汇总。
+需要 Python 3.12+。在本版本项目目录创建独立环境：
 
-| 文件 | 职责 |
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\agent-lab.exe demo
+```
+
+Linux/macOS 使用 `.venv/bin/python` 和 `.venv/bin/agent-lab`。已有 openai 环境也可直接执行 `python -X utf8 demo.py demo`。
+
+此命令不联网、不需要 API Key。生成 6 份 CSV、24 道题，运行 baseline 和 verify，保存完整记录和 comparison.md。演示客户端是固定脚本，不是 LLM；工具确实读取 CSV 并执行计算。每道 monthly 题第一次候选故意多加 1 元，用于展示失败评分与复核恢复。来源在终端、报告和 manifest 中标注为 scripted-demo。
+
+预期的 **18/24 → 24/24 是故障注入，不是 DeepSeek 能力提升**。额外请求/工具次数也展示，不能只截图成功率。单题演示：
+
+```powershell
+python -X utf8 demo.py demo --split dev --task-id task_dev_7_monthly
+```
+
+## 架构
+
+```text
+demo.py（统一命令行）
+  ├─ providers.py：公开模型配置、私有凭据、兼容 API 请求
+  ├─ sessions.py：自由 CSV 问题、事件输出、会话保存/查看
+  ├─ benchmark_suite.py：任务、Decimal 标准答案、数据指纹
+  ├─ experiments.py：固定种子/交替策略调度、重复实验、manifest、评分
+  │    ├─ agent.py：模型决策、工具反馈、baseline / verify
+  │    ├─ tools.py + execution.py：参数边界、本地 / Docker 执行
+  │    ├─ evaluate.py：确定性评分，不调用模型
+  │    └─ run_io.py：JSON 快照、JSONL 事件、运行 Key 脱敏
+  └─ reporting.py：分组统计、失败分类、配对比较、轨迹查看
+```
+
+offline_model.py 只用于离线演示；真实模式默认 DeepSeek。配置层仅支持 OpenAI-compatible Chat Completions，不宣称其他供应商已集成验收。借鉴 [Pi](https://github.com/earendil-works/pi) 的模型层/运行层/会话分离，详见 [参考与取舍](docs/PI_REFERENCE.md)。没有移植 Pi 源码，也没有引入新 Agent 框架、Web 服务、多 Agent 或训练依赖。
+
+## 不只跑预设题：自由问题
+
+先在新版本目录配置密钥（隐藏输入），检查连通性。probe 是一条短文本请求，收费，但不执行模型生成代码：
+
+```powershell
+python -X utf8 demo.py configure
+python -X utf8 demo.py doctor
+python -X utf8 demo.py probe
+```
+
+密钥保存到当前目录的 `credentials.private.json`，被 Git 忽略，**明文保存，不是保险箱**。环境变量优先。`--key-file` 可显式指定其他私有路径；不会扫描磁盘或 Cursor 配置。`--config configs/deepseek.json` 指定公开配置，`--model` 覆盖模型 ID。兼容端点示例需自己填写，未经过其他供应商验收。
+
+Docker 验收后，可对任意指定 CSV 提问：
+
+```powershell
+python -X utf8 demo.py ask "统计这份 CSV 的数据行数，不包括表头" --data data/sales.csv --answer-format-file configs/row-count.json
+python -X utf8 demo.py replay "SESSION_DIRECTORY"
+```
+
+默认答案格式 `{"answer":"string"}`；也支持明确的 string/number/integer 字段。会话只复制指定 CSV，保存 manifest、session.json、events.jsonl；`--json-events` 输出逐行事件。无标准答案时不评分，completed 只表示提交合法答案。replay 只查看，不执行工具、不请求模型，**不是恢复续跑**。
+
+## 基准与假设
+
+| 项目 | 定义 |
 | --- | --- |
-| tasks/tasks.json | 3 道题；input 给模型，evaluation 仅给本地评分器 |
-| data/sales.csv | 人工合成的数据 |
-| agent.py | 单题循环、答案格式校验、状态与事件记录 |
-| tools.py | 列文件、执行 Python、参数检查及超时 |
-| evaluate.py | 用标准答案逐字段评分，数值允许给定误差 |
-| run_benchmark.py | 批量运行、逐步保存轨迹、评分、汇总 |
-| run_io.py | 独立的实验目录创建与 JSON 保存，供两个入口复用 |
-| tests/test_agent.py | 不联网的循环、错误恢复、工具和批量流程测试 |
-| tests/test_evaluate.py | 评估器单元测试 |
-| test_deepseek_api.py | 早期单次连接测试，不是 benchmark |
-| predictions/predictions.json | 早期手写示例，不代表模型真实结果 |
+| 数据 | 6 份合成 CSV，每份 40 行 |
+| 任务 | 地区最大销售额、月销售额、缺失值、加权均价，共 24 题 |
+| 边界 | 退货负数、地区空格、空白 / NA / null、月份筛选 |
+| dev / holdout | 各 3 个固定种子、12 题；相同题型，不是跨领域泛化 |
+| baseline | 原始工具调用循环 |
+| verify | 候选答案后要求新的成功 Python 执行，再提交答案 |
+| 预算 | 两策略默认各最多 6 次请求，复核消耗同一总预算 |
+| 评分 | 隐藏标准答案逐字段比较；数值绝对容差 0.01 |
 
-## 安装与运行（PowerShell，项目根目录）
+假设：提交前重新检查数据/公式可能减少错误，也可能增加成本、超出预算或引入错误。需真实实验；离线演示只验证实验机制。新执行证据不保证独立算法或正确解释。
 
-已有 agent_env 可以直接使用；新机器需先用 Python 3.12 创建环境：
+## 真实 DeepSeek 实验
 
-    python -m venv agent_env
-    .\agent_env\Scripts\python.exe -m pip install -r requirements.txt
+默认 Docker。可用 Linux Docker Engine，也可用 Docker Desktop 的 Linux containers；不要求一定安装 Desktop。先准备镜像，并启用真实容器验收：
 
-在运行命令的同一个 PowerShell 窗口设置密钥。以下写法兼容 Windows
-PowerShell 5.1 和 PowerShell 7，输入不会明文显示，也不会写到源文件。
+```powershell
+docker pull python:3.12-slim
+$env:AGENT_LAB_TEST_DOCKER = "1"
+python -X utf8 -m unittest discover -s tests -p test_container.py -v
+Remove-Item Env:AGENT_LAB_TEST_DOCKER
+python -X utf8 demo.py run --policy both --split dev --repeats 3 --max-api-calls 432 --dry-run
+python -X utf8 demo.py run --policy both --split dev --task-id task_dev_7_monthly
+```
 
-    $taskKey = Read-Host "DeepSeek API Key" -AsSecureString
-    $env:DEEPSEEK_API_KEY = [System.Net.NetworkCredential]::new('', $taskKey).Password
-    Remove-Variable taskKey
+单题协议通过后再扩大：
 
-设置后运行全部三题：
+```powershell
+python -X utf8 demo.py run --policy both --split dev --repeats 3 --max-api-calls 432
+python -X utf8 demo.py run --policy both --split holdout --repeats 3 --max-api-calls 432
+```
 
-    .\agent_env\Scripts\python.exe -X utf8 run_benchmark.py
+真实调用收费。默认沿用原项目 deepseek-flash；用 `--model` 指定账户当前有效的模型 ID，probe 检查是否可用。公开配置默认 timeout=60 秒、重试关闭、temperature=0、非思考模式、max_tokens=2048；温度 0 不保证复现。`--dry-run` 不创建文件/请求 API，只显示最多请求次数，不估算真实费用。
 
-或先运行指定题目：
+整批 `--max-api-calls` 默认 72。若任务数 × repeats × 策略数 × max-steps 超过上限，会在创建会话/请求前拒绝；它是请求次数上限，**不是人民币硬预算**。认证、权限或模型端点错误会停止整批后续请求，保存第一条失败和 aborted 状态；未运行题保留在分母里，不生成完整 comparison.md。普通答错/工具错误仍按计划执行。
 
-    .\agent_env\Scripts\python.exe -X utf8 run_benchmark.py --task-id task_001
+题目按 `--schedule-seed` 固定随机序排列，每个 task/repeat 相邻运行两策略，交替谁先执行；实际计划写入 manifest。此设计降低顺序偏差，不消除供应商漂移或保证统计显著性。每个任务独立上下文，不跨题共享记忆。
 
-可选参数：--model、--max-steps。默认 deepseek-flash、6 次模型请求；
-非思考模式、temperature=0、单次最多输出 2048 tokens、网络超时 60 秒，
-关闭 SDK 自动重试。工具运行最多 30 秒。每次模型输出仍可能不同。
+可信受控任务可显式接受宿主机执行风险：
 
-环境变量属于当前终端进程；另一窗口（包括 Codex）不一定能读取到。
-项目不自动加载 .env，密钥不能写入 tasks、代码或轨迹。
+```powershell
+python -X utf8 demo.py run --policy both --split dev --task-id task_dev_7_monthly --backend local --allow-local-execution
+```
 
-默认模型名与非思考模式参数参考：
-[DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)。
+**本地模式不是沙箱，不用于不可信输入。** Cursor 设置不会给 Python 进程自动配置 Key，项目不自动加载 .env。Docker 未通过后端检查时不会先请求模型。
 
-## 结果保存与验收
+## 结果与分析
 
-每次运行产生 runs/时间_随机编号/，不会覆盖前次结果。
+每次会话保存到 runs/UTC时间_编号/，不覆盖旧结果：
 
-- manifest.json：任务快照、模型、Python/SDK 版本、源代码快照、数据哈希。
-- task_001.json 等：公开输入、消息轨迹、工具事件、计数、状态和评分。
-- predictions.json：这次真实生成的答案；没有成功交卷的题不编造答案。
-- summary.json：全部题目的分数、失败题 ID、步数、调用次数、耗时、token 用量。
+```text
+data/                           # CSV，Docker 只挂载这里
+session.json                    # 实验目录索引
+comparison.md                   # 两策略配对报告
+experiments/时间_编号/
+  manifest.json                 # 来源、配置、任务、代码快照、数据指纹
+  task_dev_7_monthly__r01.json   # 完整交互、事件、状态、错误、评分
+  task_dev_7_monthly__r01.events.jsonl # 生命周期事件，与模型上下文分离
+  predictions.json              # 包含失败项及 repeat
+  summary.json                  # 正确率、请求、工具、耗时、token
+  report.md                     # 分类成绩与失败原因
+```
 
-每次请求前、回复后、工具执行后都保存检查点。异常或步数耗尽返回 failed，
-保留当时轨迹；正常提交返回 completed，仍需评分才能确定答案是否正确。
-这里的异常处理针对 API 错误、文件操作失败及超时等外部问题；内部编程错误
-保留 traceback，不会包装成模型失败。此时磁盘检查点可能仍显示 running。
-强行关闭进程可能留下 running 状态，那表示未完成，不能当作完整成绩。
-终端单独执行 agent.py 也保存轨迹，但只有 benchmark 命令负责自动评分。
+```powershell
+python -X utf8 demo.py report "RUN_DIRECTORY"
+python -X utf8 demo.py compare "BASELINE_DIRECTORY" "VERIFY_DIRECTORY"
+python -X utf8 demo.py inspect "TRACE_JSON"
+```
 
-指标定义：steps 是模型请求尝试次数；tool_calls 包括非法调用；
-invalid_tool_calls 统计参数 JSON、类型、范围或名称错误；execution_failures
-统计合法请求执行时的错误（包括超时）。这两项不重复统计。
-usage 缺失用 null，部分缺失时 usage_complete=false；已知 token 仅为下界，
-不能当作全部费用。耗时包含请求和工具执行，但不包含批次启动及最终评分。
-平均步数统计已结束的全部题，失败题也计入。重试没有实现，不报告假重试数据。
+比较器拒绝 mock/live 混比、不同题目/模型/预算/后端/版本与不完整实验；展示恢复、退化和计算代价，不宣称统计显著性。缺失 token 是未知，不是零费用。completed 是合法交卷，passed 才是正确答案。未完成、未运行和失败题不会从分母消失。
 
-工具入口统一解析和校验参数，返回 status 与 observation。状态来自真实执行
-结果，不从输出文字推断。轨迹中的工具事件增加 status；arguments 保存模型的
-原始 JSON 字符串，方便检查非法参数。先前实验中的 arguments 字典仍保留原样。
+## 验收与边界
 
-本次代码整理后的离线测试为 19 个，包含输出文字误判、内部编程错误传播、
-文件错误及独立汇总验证；此前真实 baseline 的 3/3 是整理前版本的实验成绩。
+```powershell
+python -X utf8 -m unittest discover -s tests -v
+```
 
-验收命令：
+当前 Windows 63 个离线测试通过（含原有 19 项），7 项 Docker 集成默认跳过；本机 WSL Ubuntu 24.04.5 上显式启用后，**70 项全部通过，含 7 项真实容器边界测试**。核实了实际 CPU/内存/进程限额、断网、只读数据、凭据/答案不可见、非 root 与超时清理。见 [验收说明](docs/ACCEPTANCE.md) 和 [迭代记录](docs/ITERATION_LOG.md)。Windows/Linux、Python 3.12/3.13 CI 配置已提供，尚未上传运行，不能称为云端 CI 通过。本轮真实 API 探针返回 AuthenticationError，新版尚无真实模型 benchmark。
 
-    .\agent_env\Scripts\python.exe -X utf8 -m unittest discover -s tests -v
+历史 V0 的 3/3 真实成绩见 [BASELINE_RESULTS.md](BASELINE_RESULTS.md)，不是新版 24 题成绩。V0 脚本入口保留，本地执行风险也保留；新版对外演示请用 demo.py。
 
-测试替身输出的答案是人为指定的，仅验证程序流程；测试通过不等于模型解题成功。
-真实验收需检查三题轨迹和 summary，确认工具从 sales.csv 计算结果，未读取标准答案。
-
-## 当前限制与下一步
-
-run_python 不是操作系统沙箱，工作目录不能阻止访问其他文件。已避免继承 API
-密钥环境变量，但不能阻止读取磁盘上的其他文件或网络访问。只用于受控本地任务。
-提示词不传标准答案不等于严格答案隔离；正式扩大 benchmark 前需要完善隔离。
-
-源码快照和数据哈希支持追溯，不保证供应商模型升级后逐位复现输出。
-如需在其他机器复查，应保留本次对应的数据文件；哈希可验证文件是否相同。
-runs 默认不进入 Git，分享前审阅内容。现有示例 predictions 不会被覆盖。
-
-下一步：补真实 baseline → 检查失败轨迹 → 再决定扩题或研究 reflection。
-尚未实现 reflection、verifier、memory、训练或 RL。
+详见 [演示流程](docs/DEMO_RUNBOOK.md)、[实验计划](docs/EXPERIMENT_PLAN.md)、[安全边界](SECURITY.md)、[简历表述](docs/RESUME_NOTES.md)。凭据、环境、未审阅日志不提交 Git，分享报告前仍需审阅。公开许可证尚未选择；未代作者决定许可条款。
