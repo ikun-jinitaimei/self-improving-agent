@@ -9,10 +9,36 @@
 7. 解释开销：baseline 3 次请求/2 次工具，verify 5 次请求/3 次工具；不能隐藏增加的计算。
 8. 展示测试命令、来源标签、配置/源码快照、数据指纹、失败保留和预算耗尽测试。
 9. 展示 ask 与 JSONL 事件入口，说明用户问题无标准答案，不算 benchmark 成绩。
-10. 如果已有真实 API/Docker 集成验收，再运行真实单题；否则明确此项待验收。
+10. 展示 LIVE_RESULTS.md 与公开逐尝试账本；不要只截图一个成功任务。
 
 无需启动 Web 服务或把 API Key 放进代码。使用终端输出与 Markdown 报告即可。
 演示记录包含原始候选与最终答案，而非只有一张成功率截图。
+
+## 本机最短演示路线
+
+本机已有 D 盘 Ubuntu / Engine，默认凭据已配置；从任意 PowerShell 工作目录：
+
+```powershell
+& "D:\AgentRuntime\Run-Agent.ps1" doctor
+& "D:\AgentRuntime\Run-Agent.ps1" demo --split dev --task-id task_dev_7_monthly
+```
+
+doctor 应显示 key_available=true、docker=ready，但它不请求 API。demo 固定
+回复、不收费，在 D 盘生成报告。先说明故障注入来源，再展示额外复核请求。
+此脚本是本机环境入口，其他机器克隆仓库后应使用下方通用 Python 命令。
+
+若需现场真实单题（收费）：
+
+```powershell
+& "D:\AgentRuntime\Run-Agent.ps1" run --policy both --split dev --task-id task_dev_7_monthly --max-api-calls 12
+```
+
+正式批次已通过的范围见 LIVE_RESULTS.md；现场单题是新的一次尝试，仍可能
+失败，不能承诺每次输出一致或覆盖已有正式成绩。不要为了演示临时改评分器。
+
+讲研究结论时应同时说：dev 36/36 对 36/36，没有观察到准确率提升，verify
+消耗约 2.25 倍 token；不能把故障注入的恢复包装成模型效果。
+冻结 holdout 为 36/36 对 35/36，展示预算耗尽的真实退化轨迹；复核并非必然更好。
 
 ## 从无密钥演示转向真正使用
 

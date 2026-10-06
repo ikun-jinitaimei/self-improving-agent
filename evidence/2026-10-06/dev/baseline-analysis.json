@@ -1,0 +1,69 @@
+{
+  "kind": "live",
+  "status": "completed",
+  "policy": "baseline",
+  "model": "deepseek-flash",
+  "suite_fingerprint": "b17020c15f38a21b37cf811ce57c93b34f98ba7fb42291a72bfe544a25a6efb1",
+  "metrics": {
+    "expected": 36,
+    "finished": 36,
+    "passed": 36,
+    "success_rate": 1.0,
+    "groups": {
+      "dev/region": {
+        "expected": 9,
+        "passed": 9
+      },
+      "dev/monthly": {
+        "expected": 9,
+        "passed": 9
+      },
+      "dev/missing": {
+        "expected": 9,
+        "passed": 9
+      },
+      "dev/weighted": {
+        "expected": 9,
+        "passed": 9
+      }
+    },
+    "failures": {},
+    "steps": 102,
+    "tool_calls": 92,
+    "invalid_tool_calls": 0,
+    "execution_failures": 0,
+    "latency_seconds": 522.5339,
+    "known_tokens": 96009,
+    "usage_complete": true
+  },
+  "response_tokens": {
+    "prompt_cache_hit_tokens": 70727,
+    "prompt_cache_miss_tokens": 16815,
+    "completion_tokens": 8467
+  },
+  "stable_tasks": 12,
+  "task_count": 12,
+  "failures": [],
+  "price_snapshot": {
+    "model": "deepseek-flash",
+    "currency": "USD",
+    "unit": "per_million_tokens",
+    "retrieved_date": "2026-10-06",
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "measurement": "Estimate range, not an account invoice; no exchange-rate conversion.",
+    "off_peak": {
+      "cache_hit": 0.003,
+      "cache_miss": 0.15,
+      "output": 0.6
+    },
+    "peak": {
+      "cache_hit": 0.006,
+      "cache_miss": 0.3,
+      "output": 1.2
+    }
+  },
+  "estimated_cost": {
+    "off_peak_usd": 0.00781463,
+    "peak_usd": 0.01562926
+  }
+}

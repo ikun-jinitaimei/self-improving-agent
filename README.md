@@ -4,6 +4,19 @@
 
 当前是独立研究候选版 v0.2.2：可接受自由 CSV 问题、配置兼容模型端点，并组织真实对照实验。V0 原工作区与提交 `d40a3b2` 保留不动。Self-Improving 是研究方向，**尚未实现参数学习、记忆学习或 RL**；复核是测试时计算策略，不是训练。
 
+## 已验证的研究结果
+
+2026-10-06 冻结版本的真实 dev 对照：12 题 × 3 repeats，baseline 与 verify
+均为 36/36，工具执行错误为 0；verify 消耗约 2.25 倍 token、1.62 倍任务耗时。
+同版本 holdout 为 36/36 对 35/36，一条失败来自复核预算耗尽。两 split
+共 144 次真实尝试，未观察到复核收益，因此真实入口默认 baseline。
+完整设置、失败探索与成本见 [真实实验报告](docs/LIVE_RESULTS.md)，逐次成绩和
+来源见 [公开证据](evidence/README.md)。不把下方离线恢复演示当成模型能力提升。
+
+独立 [候选版 PR](https://github.com/ikun-jinitaimei/self-improving-agent/pull/1)
+保留新代码，未合并 V0。云端 [五项 CI 验收](https://github.com/ikun-jinitaimei/self-improving-agent/actions/runs/37448879935)
+已通过：Windows / Ubuntu × Python 3.12 / 3.13，以及真实 Docker 边界测试。
+
 ## 本机 Windows 的统一入口
 
 已经配置好 D 盘 Ubuntu / Docker 的本机，无需反复切换目录或 Python 环境：
@@ -21,6 +34,14 @@
 Windows `.demo_env` 的 doctor 找不到 Ubuntu Docker，不等于 Linux Engine 未安装。
 
 ## 两分钟离线演示
+
+GitHub 默认 main 保留 V0；查看 PR #1 或检出 `codex/agent-demo` 才是本候选版。
+第一次下载可用（已解压本版本源码包则不需要 clone）：
+
+```shell
+git clone --branch codex/agent-demo https://github.com/ikun-jinitaimei/self-improving-agent.git self-improving-agent-lab
+cd self-improving-agent-lab
+```
 
 需要 Python 3.12+。在本版本项目目录创建独立环境：
 
@@ -52,7 +73,8 @@ demo.py（统一命令行）
   │    ├─ tools.py + execution.py：参数边界、本地 / Docker 执行
   │    ├─ evaluate.py：确定性评分，不调用模型
   │    └─ run_io.py：JSON 快照、JSONL 事件、运行 Key 脱敏
-  └─ reporting.py：分组统计、失败分类、配对比较、轨迹查看
+  ├─ reporting.py：分组统计、失败分类、配对比较、轨迹查看
+  └─ analyze_run.py：只读用量分析、重复稳定性、显式价格估算
 ```
 
 offline_model.py 只用于离线演示；真实模式默认 DeepSeek。配置层仅支持 OpenAI-compatible Chat Completions，不宣称其他供应商已集成验收。借鉴 [Pi](https://github.com/earendil-works/pi) 的模型层/运行层/会话分离，详见 [参考与取舍](docs/PI_REFERENCE.md)。没有移植 Pi 源码，也没有引入新 Agent 框架、Web 服务、多 Agent 或训练依赖。
@@ -167,7 +189,7 @@ python -X utf8 analyze_run.py "EXPERIMENT_DIRECTORY" --prices configs/deepseek-p
 python -X utf8 -m unittest discover -s tests -v
 ```
 
-当前本机 Windows 发现 80 项测试，73 个离线测试通过，7 项 Docker 集成默认跳过；此前本机 WSL Ubuntu 24.04.5 上显式启用后，70 项全部通过，含 7 项真实容器边界测试。核实了实际 CPU/内存/进程限额、断网、只读数据、凭据/答案不可见、非 root 与超时清理。v0.2.2 的完整容器回归及云端 CI 状态以 [验收说明](docs/ACCEPTANCE.md) 为准，不把旧测试数当作新版本实测。真实 API 已成功，单题存在真实成功和格式失败；完整开发集实验正在按冻结代码运行。
+本机 Windows 发现 80 项测试，73 个离线测试通过，7 项 Docker 集成默认跳过；本机 WSL Ubuntu 24.04.5 显式启用容器后，80 项全部通过、无跳过。云端四个系统/版本组合的离线测试与独立 Docker 任务也通过。核实了实际 CPU/内存/进程限额、断网、只读数据、凭据/答案不可见、非 root 与超时清理。验收范围见 [验收说明](docs/ACCEPTANCE.md)。真实 dev / holdout 各 72 次尝试已完整结束，同版本运行，保留了复核失败；真实自由 CSV 会话与只读 replay 也已通过。
 
 历史 V0 的 3/3 真实成绩见 [BASELINE_RESULTS.md](BASELINE_RESULTS.md)，不是新版 24 题成绩。V0 脚本入口保留，本地执行风险也保留；新版对外演示请用 demo.py。
 
