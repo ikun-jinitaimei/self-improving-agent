@@ -44,7 +44,7 @@ def validate_tasks(tasks: list[dict]) -> None:
 
 
 def summarize_results(records: list[dict], task_count: int) -> dict:
-    """汇总至少一道已结束任务的记录；调用者在每题完成后使用。
+    """汇总已结束任务；也支持认证失败导致某策略尚未开始的空记录。
 
     失败题也计入分母。缺失 token 数据保持未知，不把已知部分当成总费用。
     此函数只计算结果，不执行任务、不读写文件，便于单独验证统计口径。
@@ -57,14 +57,15 @@ def summarize_results(records: list[dict], task_count: int) -> dict:
         "task_count": task_count, "tasks_finished": len(records),
         "passed": passed, "success_rate": passed / task_count,
         "failed_tasks": [item["task_id"] for item in results if not item["passed"]],
-        "average_steps": sum(r["steps"] for r in records) / len(records),
+        # 空策略不能伪造平均步数为 0；None 表示尚无可测样本。
+        "average_steps": sum(r["steps"] for r in records) / len(records) if records else None,
         "tool_calls": sum(r["tool_calls"] for r in records),
         "invalid_tool_calls": sum(r["invalid_tool_calls"] for r in records),
         "execution_failures": sum(r["execution_failures"] for r in records),
         "latency_seconds": sum(r["latency_seconds"] for r in records),
         "usage": ({key: sum(u[key] for u in known_usage) for key in known_usage[0]}
                   if known_usage else None),
-        "usage_complete": all(r["usage_complete"] for r in records),
+        "usage_complete": len(records) == task_count and all(r["usage_complete"] for r in records),
         "results": results,
     }
 

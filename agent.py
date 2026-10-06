@@ -1,12 +1,13 @@
-"""Self-Improving Agent V0：一个最小、透明的 Agent 循环。
+"""Self-Improving Agent 研究版：保留可读循环，添加可观测事件和复核协议。
 
 这个文件只负责运行一个任务：
 
-任务输入 -> 调用 DeepSeek -> 执行工具 -> 返回 observation
-         -> 再次调用 DeepSeek -> 得到最终 JSON 答案
+任务输入 -> 模型决策 -> 执行工具 -> 返回 observation
+         -> 下一次模型决策 -> 可选复核 -> 最终 JSON 答案
 
-run_agent 通过 checkpoint 回调交出轨迹；run_benchmark.py 组织批量实验和评分。
-独立的 run_io.py 负责写文件，单题和批量入口都能复用，不产生双向依赖。
+providers.py 管理模型请求；run_agent 通过 checkpoint/on_event 交出记录。
+experiments.py 组织对照评分，sessions.py 处理无标准答案的用户会话。
+原单题/三题入口仍兼容，不代表原 V0 工作区被修改。
 """
 
 import json
@@ -22,6 +23,7 @@ from openai import APIError, OpenAI
 
 from run_io import create_run_directory, write_json
 from tools import execute_tool
+from providers import ModelSettings, request_completion
 
 
 # 无论从哪个工作目录启动 agent.py，都以本文件所在目录作为项目根目录。
@@ -138,7 +140,12 @@ def load_task(task_id: str) -> dict[str, Any]:
 
 
 def build_user_message(task_input: dict[str, Any]) -> str:
-    """把结构化任务信息整理成一条发给模型的用户消息。"""
+    """把公开任务整理成模型消息；answer_format 是类型声明，不是答案示例。
+
+    真实加权均价回归中，模型计算正确却提交了带引号的数字。明确 JSON 类型
+    的含义，不向模型提供标准答案，也不在解析器中把字符串偷偷转成数字。
+    baseline 和 verify 共用这条说明，不能只改其中一组以影响对照。
+    """
     question = task_input["question"]
     data_file = task_input["data_file"]
     answer_format = task_input["answer_format"]
@@ -146,8 +153,10 @@ def build_user_message(task_input: dict[str, Any]) -> str:
     return (
         f"Question:\n{question}\n\n"
         f"Data file (relative to the project root):\n{data_file}\n\n"
-        "Required final answer format:\n"
-        f"{json.dumps(answer_format, ensure_ascii=False, indent=2)}"
+        "Required JSON value types (this is a type declaration, not an example answer):\n"
+        f"{json.dumps(answer_format, ensure_ascii=False, indent=2)}\n\n"
+        "For number and integer fields, use unquoted JSON numeric values. "
+        "Do not put numeric results in strings. String fields must contain JSON strings."
     )
 
 
@@ -202,6 +211,10 @@ def run_agent(
     *,
     model: str | None = None,
     checkpoint: Callable[[dict[str, Any]], None] | None = None,
+    tool_executor: Callable[[str, str], dict[str, str]] = execute_tool,
+    policy: str = "baseline",
+    settings: ModelSettings | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """运行一道题；无论成功或可预期失败，都保留轨迹与计数。
 
@@ -211,7 +224,14 @@ def run_agent(
     """
     if type(max_steps) is not int or max_steps < 1:
         raise ValueError("max_steps 必须是正整数")
+    if policy not in {"baseline", "verify"}:
+        raise ValueError("policy 必须是 baseline 或 verify")
+    # 复核策略只使用公开题目、候选答案和执行反馈；从不读取评分结果。
+    # 两种策略共享 max_steps 总预算，额外复核不是免费的隐藏计算。
+    verification_requested = False
+    verification_calculated = False
     started = time.perf_counter()
+    settings = settings or ModelSettings(model=model or os.environ.get("DEEPSEEK_MODEL", DEFAULT_MODEL))
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": build_user_message(task_input)},
@@ -223,10 +243,21 @@ def run_agent(
         "invalid_tool_calls": 0, "execution_failures": 0,
         "latency_seconds": 0.0, "usage": None,
         "usage_complete": True, "responses_received": 0,
-        "config": {"model": model or os.environ.get("DEEPSEEK_MODEL", DEFAULT_MODEL),
-                   "max_steps": max_steps, "thinking": "disabled", "temperature": 0,
-                   "max_tokens": 2048, "timeout_seconds": 60, "sdk_max_retries": 0},
+        "config": {"model": settings.model,
+                   "policy": policy,
+                   "max_steps": max_steps, "sdk_max_retries": 0,
+                   "provider_settings": settings.public()},
     }
+
+    def emit(kind: str, **details) -> None:
+        # 事件与发给模型的 messages 分开，日志/UI 元数据绝不能混进模型上下文。
+        # checkpoint 保留快照，on_event 则允许终端进度和 JSONL 会话订阅事件。
+        event = {"sequence": len(result["events"]) + 1, "type": kind,
+                 "step": result["steps"], "elapsed_seconds": round(time.perf_counter() - started, 4),
+                 **details}
+        result["events"].append(event)
+        if on_event is not None:
+            on_event(event)
 
     def save() -> None:
         # 使用单调时钟测耗时，避免系统时间校准影响差值。
@@ -237,31 +268,36 @@ def run_agent(
     def fail(kind: str, detail: str) -> dict[str, Any]:
         result["status"] = "failed"
         result["error"] = {"type": kind, "message": detail}
+        if result["steps"] and result["events"][-1]["type"] != "turn_end":
+            emit("turn_end", status="failed")
+        emit("agent_end", status="failed", error_type=kind)
         save()
         return result
 
+    emit("agent_start", policy=policy)
     save()
     # 每轮是一次模型决策。回调在请求前后执行，网络中断也能留下请求前的状态。
     for step in range(1, max_steps + 1):
         print(f"\n--- Step {step} ---")
         result["steps"] = step
+        emit("turn_start")
         save()
         try:
-            response = client.chat.completions.create(
-                model=result["config"]["model"], messages=messages,
-                tools=TOOL_DEFINITIONS, stream=False, temperature=0, max_tokens=2048,
-                extra_body={"thinking": {"type": "disabled"}},
-            )
+            response = request_completion(client, messages, TOOL_DEFINITIONS, settings)
         except APIError as error:
             # 不保存原始 HTTP 错误体/请求头，以免将凭据写入实验文件。
             # 只捕获 SDK 的 API 异常，TypeError 等内部错误保留 traceback。
             result["usage_complete"] = False
+            # SDK 的 APITimeoutError 无法区分连接阶段与服务响应阶段。
+            # 只记录异常类/状态码，不存原始异常文本、请求头或响应体；这些
+            # 元数据用于分析环境故障，不回传模型，也不触发自动重试。
+            emit("api_error", error_type=type(error).__name__,
+                 cause_type=type(error.__cause__).__name__ if error.__cause__ else None,
+                 status_code=getattr(error, "status_code", None))
             return fail("api_error", type(error).__name__)
         result["responses_received"] += 1
         usage = response.usage.model_dump() if response.usage else None
-        result["events"].append({"step": step, "type": "model_response",
-                                 "response_id": response.id, "model": response.model,
-                                 "usage": usage})
+        emit("model_response", response_id=response.id, model=response.model, usage=usage)
         if usage is None:
             result["usage_complete"] = False
         else:
@@ -284,12 +320,32 @@ def run_agent(
         if not tool_calls:
             if result["tool_calls"] == 0:
                 return fail("protocol_error", "模型未调用工具就提交答案")
+            if policy == "verify" and not verification_requested:
+                verification_requested = True
+                emit("verification_requested")
+                messages.append({"role": "user", "content": (
+                    "Before submitting, independently check your candidate answer with "
+                    "at least one new tool call. Re-read the supplied CSV; check filters, "
+                    "returns, missing values and units. Do not access reference answers. "
+                    "Use an alternative calculation where possible. This is a tool-based "
+                    "check, not a written review: keep verification notes in tool outputs. "
+                    "After checking, respond with ONLY the final JSON object matching the "
+                    "original value types, with unquoted numbers. No explanations, "
+                    "verification summaries, Markdown, or text outside the JSON object."
+                )})
+                emit("turn_end", status="verification_requested")
+                save()
+                continue
+            if verification_requested and not verification_calculated:
+                return fail("verification_missing", "复核阶段没有成功执行新的 Python 计算")
             try:
                 result["answer"] = parse_final_answer(
                     assistant_message.content or "", task_input["answer_format"])
             except ValueError as error:
                 return fail("answer_format_error", str(error))
             result["status"] = "completed"
+            emit("turn_end", status="completed")
+            emit("agent_end", status="completed")
             save()
             return result
 
@@ -298,24 +354,22 @@ def run_agent(
             tool_name = tool_call.function.name
             # 原始 JSON 参数交给工具入口统一解析和校验。保留原文便于分析坏调用。
             arguments = tool_call.function.arguments
-            tool_result = execute_tool(tool_name, arguments)
+            emit("tool_start", name=tool_name, tool_call_id=tool_call.id)
+            save()
+            tool_result = tool_executor(tool_name, arguments)
             observation = tool_result["observation"]
             invalid = tool_result["status"] == "invalid_arguments"
             failed = tool_result["status"] == "execution_error"
+            # 仅列目录或提交非法调用不能冒充重新计算；成功执行也只说明有
+            # 新的执行证据，并不保证模型采用了独立算法或正确解释了结果。
+            if verification_requested and tool_name == "run_python" and tool_result["status"] == "success":
+                verification_calculated = True
             result["invalid_tool_calls"] += int(invalid)
             result["execution_failures"] += int(failed)
             result["tool_calls"] += 1
-            result["events"].append({
-                "step": step,
-                "type": "tool",
-                "tool_call_id": tool_call.id,
-                "name": tool_name,
-                "arguments": arguments,
-                "observation": observation,
-                "status": tool_result["status"],
-                "invalid_arguments": invalid,
-                "execution_failed": failed,
-            })
+            emit("tool", tool_call_id=tool_call.id, name=tool_name,
+                 arguments=arguments, observation=observation, status=tool_result["status"],
+                 invalid_arguments=invalid, execution_failed=failed)
 
             print(f"Action: {tool_name}")
             print(f"Arguments: {arguments}")
@@ -331,6 +385,7 @@ def run_agent(
                 }
             )
             save()
+        emit("turn_end")
 
     return fail("step_limit", f"Agent 在 {max_steps} 步内没有产生最终答案")
 

@@ -11,58 +11,100 @@ Agent 用 status 统计，用 observation 向模型反馈，不再从文字猜�
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
+from uuid import uuid4
+
+from execution import python_command
 
 
 # 以脚本位置确定数据目录，不依赖启动程序时终端所在的位置。
 DATA_ROOT = Path(__file__).resolve().parent / "data"
 
 
-def list_files(directory: str = ".") -> dict[str, str]:
+def list_files(directory: str = ".", *, data_root: Path = DATA_ROOT) -> dict[str, str]:
     """执行已校验的列目录请求；路径范围属于本工具的执行边界。
 
     resolve 处理 .. 后再检查范围。iterdir 只列直接子项，排序使输出稳定。
     文件不存在、不是目录或没有权限会抛 OSError，由统一入口转换成反馈。
     """
-    requested = (DATA_ROOT / directory).resolve()
-    if not requested.is_relative_to(DATA_ROOT):
+    data_root = data_root.resolve()
+    requested = (data_root / directory).resolve()
+    if not requested.is_relative_to(data_root):
         return {"status": "execution_error",
                 "observation": "ToolError: directory must stay inside data/"}
     entries = sorted(requested.iterdir(), key=lambda path: path.name.lower())
     lines = []
     for entry in entries:
         kind = "DIR" if entry.is_dir() else "FILE"
-        lines.append(f"[{kind}] {entry.relative_to(DATA_ROOT)}")
+        lines.append(f"[{kind}] {entry.relative_to(data_root)}")
     return {"status": "success", "observation": "\n".join(lines) or "(empty directory)"}
 
 
-def run_python(code: str, timeout_seconds: int = 10) -> dict[str, str]:
-    """用当前 Python 解释器执行已校验的代码，按真实退出码确定状态。
+def run_python(code: str, timeout_seconds: int = 10, *,
+               data_root: Path = DATA_ROOT, backend: str = "local") -> dict[str, str]:
+    """在所选后端执行已校验的代码，按真实退出码确定状态。
 
     参数只在 execute_tool 校验一次。这里专注执行：
-    - sys.executable 复用当前虚拟环境；-c 执行代码字符串；
-    - cwd 设为 data，因此代码中使用 open("sales.csv")；
+    - 本地复用当前 Python；Docker 使用只读数据挂载与资源限制；
+    - 两后端工作目录都是本次数据目录，代码使用相对文件名；
     - capture_output 捕获 stdout/stderr；UTF-8 避免中文解码错误；
     - check=False 让我们自己处理非零退出码；
-    - timeout 防止一次调用无限等待，超时由统一入口处理。
+    - timeout 限制 Python 执行，Docker 创建另有 10 秒限额，清理最多 5 秒；
+      完整调用耗时仍写入轨迹，不能把准备/清理时间从延迟中删掉。
 
-    子进程只继承基本环境变量，不继承 API 密钥。这不是操作系统沙箱：
-    cwd 无法禁止代码通过绝对路径或 .. 访问其他文件。
+    本地子进程不继承 API 密钥，但 cwd 不禁止访问其他宿主文件，所以不是沙箱。
+    Docker 的信任边界、预安装镜像与未验收项详见 execution.py 和 SECURITY.md。
     """
     allowed = {"SYSTEMROOT", "WINDIR", "PATH", "TEMP", "TMP", "LANG"}
     child_env = {key: value for key, value in os.environ.items() if key.upper() in allowed}
-    completed = subprocess.run(
-        [sys.executable, "-X", "utf8", "-c", code],
-        cwd=DATA_ROOT,
-        env=child_env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout_seconds,
-        check=False,
-    )
+    if backend == "docker":
+        # 这些配置只供 Docker CLI 使用，不通过 -e 传给容器；容器中的 Python
+        # 仍看不到 API 密钥。Windows Docker Desktop 需要用户目录定位 context。
+        docker_keys = {"USERPROFILE", "HOME", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG",
+                       "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
+        child_env.update({k: v for k, v in os.environ.items() if k.upper() in docker_keys})
+    # 容器名由程序生成，绝不使用模型参数。超时后只清理本次创建的容器，
+    # 因为终止 docker CLI 本身并不保证终止后台容器。
+    name = f"sia-{uuid4().hex}"
+    command = python_command(code, data_root, backend, name)
+    def invoke(arguments, timeout):
+        # 复用同一环境/编码配置，参数列表不经过 shell；不在各阶段重复校验模型参数。
+        return subprocess.run(arguments, cwd=data_root, env=child_env, capture_output=True,
+                              text=True, encoding="utf-8", errors="replace",
+                              timeout=timeout, check=False)
+
+    def remove_container():
+        # --rm 不能解决 docker run 被杀时容器还在创建的竞态。这里显式验证
+        # 本次名称的 rm 结果；清理失败直接抛出，不掩盖失败并继续执行下一题。
+        try:
+            removed = invoke(["docker", "rm", "-f", name], 5)
+        except (subprocess.TimeoutExpired, OSError) as error:
+            # 清理阶段超时/CLI 无法启动不能落入外层“Python 超时”反馈，
+            # 否则 Agent 会在清理未确认时继续调用模型。仅捕获这两类环境错误。
+            raise RuntimeError(f"Docker cleanup unconfirmed for owned container {name}; stop execution") from error
+        if removed.returncode:
+            raise RuntimeError(f"Docker cleanup failed for owned container {name}; stop execution")
+
+    if backend == "local":
+        completed = invoke(command, timeout_seconds)
+    else:
+        # create 只登记容器，不运行模型代码。只有收到成功返回后，才进入 start。
+        # 这样 Python 的短超时不会杀掉仍在创建容器的 CLI。若创建本身超时，
+        # 也尝试删除本次名称；无法确认清理时停止，绝不假装安全地自动重试。
+        try:
+            prepared = invoke(command, 10)
+        except subprocess.TimeoutExpired:
+            remove_container()
+            raise
+        if prepared.returncode:
+            completed = prepared
+        else:
+            try:
+                completed = invoke(["docker", "start", "--attach", name], timeout_seconds)
+            finally:
+                # 正常退出、非零退出、超时、内部异常均走清理。没有宽泛 except，
+                # 清理错误和内部编程错误保留异常，不变成普通的模型观察。
+                remove_container()
     parts = []
     if completed.stdout.strip():
         parts.append(f"STDOUT:\n{completed.stdout.strip()}")
@@ -71,9 +113,13 @@ def run_python(code: str, timeout_seconds: int = 10) -> dict[str, str]:
     if completed.returncode != 0:
         parts.append(f"EXIT CODE: {completed.returncode}")
     # stderr 可能只是警告；输出文字不参与状态判断。
+    observation = "\n".join(parts) or "(no output)"
+    if len(observation) > 12000:
+        observation = observation[:12000] + "\n[OUTPUT TRUNCATED]"
     return {
         "status": "success" if completed.returncode == 0 else "execution_error",
-        "observation": "\n".join(parts) or "(no output)",
+        # 限制进入模型上下文和日志的输出长度，不把它宣称为内存硬限制。
+        "observation": observation,
     }
 
 
@@ -103,7 +149,8 @@ def validate_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     return None
 
 
-def execute_tool(tool_name: str, arguments: str | dict) -> dict[str, str]:
+def execute_tool(tool_name: str, arguments: str | dict, *,
+                 data_root: Path = DATA_ROOT, backend: str = "local") -> dict[str, str]:
     """统一边界：解析参数 → 校验一次 → 分发执行 → 返回状态及反馈。
 
     JSON 格式错误是模型输入错误；文件操作失败与超时是环境执行错误。
@@ -121,8 +168,8 @@ def execute_tool(tool_name: str, arguments: str | dict) -> dict[str, str]:
 
     try:
         if tool_name == "list_files":
-            return list_files(**arguments)
-        return run_python(**arguments)
+            return list_files(**arguments, data_root=data_root)
+        return run_python(**arguments, data_root=data_root, backend=backend)
     except subprocess.TimeoutExpired as error:
         return {"status": "execution_error",
                 "observation": f"ToolError: Python execution exceeded {error.timeout} seconds"}

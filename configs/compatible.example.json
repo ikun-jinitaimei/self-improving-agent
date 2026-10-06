@@ -1,0 +1,7 @@
+{
+  "provider": "compatible",
+  "model": "REPLACE_WITH_MODEL_ID",
+  "base_url": "https://example.com/v1",
+  "key_env": "MODEL_API_KEY",
+  "extra_body": {}
+}

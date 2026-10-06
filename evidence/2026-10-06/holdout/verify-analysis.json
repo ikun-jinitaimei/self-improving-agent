@@ -1,0 +1,77 @@
+{
+  "kind": "live",
+  "status": "completed",
+  "policy": "verify",
+  "model": "deepseek-flash",
+  "suite_fingerprint": "a294a8b7c507b617e7c016fca9fe43f14c995fc556345e0d1ed26920fc007604",
+  "metrics": {
+    "expected": 36,
+    "finished": 36,
+    "passed": 35,
+    "success_rate": 0.9722222222222222,
+    "groups": {
+      "holdout/region": {
+        "expected": 9,
+        "passed": 9
+      },
+      "holdout/monthly": {
+        "expected": 9,
+        "passed": 8
+      },
+      "holdout/missing": {
+        "expected": 9,
+        "passed": 9
+      },
+      "holdout/weighted": {
+        "expected": 9,
+        "passed": 9
+      }
+    },
+    "failures": {
+      "step_limit": 1
+    },
+    "steps": 169,
+    "tool_calls": 118,
+    "invalid_tool_calls": 0,
+    "execution_failures": 0,
+    "latency_seconds": 789.465,
+    "known_tokens": 207889,
+    "usage_complete": true
+  },
+  "response_tokens": {
+    "prompt_cache_hit_tokens": 148336,
+    "prompt_cache_miss_tokens": 39140,
+    "completion_tokens": 20413
+  },
+  "stable_tasks": 11,
+  "task_count": 12,
+  "failures": [
+    {
+      "task_id": "task_holdout_307_monthly",
+      "repeat": 1,
+      "reason": "step_limit"
+    }
+  ],
+  "price_snapshot": {
+    "model": "deepseek-flash",
+    "currency": "USD",
+    "unit": "per_million_tokens",
+    "retrieved_date": "2026-10-06",
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "measurement": "Estimate range, not an account invoice; no exchange-rate conversion.",
+    "off_peak": {
+      "cache_hit": 0.003,
+      "cache_miss": 0.15,
+      "output": 0.6
+    },
+    "peak": {
+      "cache_hit": 0.006,
+      "cache_miss": 0.3,
+      "output": 1.2
+    }
+  },
+  "estimated_cost": {
+    "off_peak_usd": 0.01856381,
+    "peak_usd": 0.03712762
+  }
+}

@@ -1,5 +1,10 @@
 # Python 虚拟环境
 agent_env/
+.venv/
+.demo_env/
+dist/
+build/
+*.egg-info/
 
 # Python 字节码缓存
 __pycache__/
@@ -17,3 +22,4 @@ runs/
 
 # 本地个人背景与学习记录，不提交到公开仓库。
 *.private.md
+*.private.json

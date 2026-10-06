@@ -1,0 +1,10 @@
+{
+  "model": "deepseek-flash",
+  "currency": "USD",
+  "unit": "per_million_tokens",
+  "retrieved_date": "2026-10-06",
+  "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+  "measurement": "Estimate range, not an account invoice; no exchange-rate conversion.",
+  "off_peak": {"cache_hit": 0.003, "cache_miss": 0.15, "output": 0.6},
+  "peak": {"cache_hit": 0.006, "cache_miss": 0.3, "output": 1.2}
+}

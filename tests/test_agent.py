@@ -19,7 +19,7 @@ import httpx2
 from openai import APIConnectionError
 from openai.types.chat import ChatCompletion
 
-from agent import load_task, parse_final_answer, run_agent
+from agent import build_user_message, load_task, parse_final_answer, run_agent
 from run_benchmark import run_benchmark, summarize_results
 from run_io import write_json
 from tools import execute_tool
@@ -56,6 +56,15 @@ class FakeClient:
 
 
 class AgentTests(unittest.TestCase):
+    def test_public_prompt_explains_json_value_types_without_answers(self):
+        """说明数字不能加引号；消息只使用 input，不含标准答案或评分反馈。"""
+        message = build_user_message({"question": "Compute a weighted price.",
+            "data_file": "sales.csv", "answer_format": {"price": "number"}})
+        self.assertIn("type declaration, not an example answer", message)
+        self.assertIn("unquoted JSON numeric values", message)
+        self.assertIn('"price": "number"', message)
+        self.assertNotIn("reference_answer", message)
+
     def setUp(self):
         self.task = load_task("task_001")
         self.answer = '{"region":"South","sales_amount":23478.0}'
@@ -92,7 +101,8 @@ class AgentTests(unittest.TestCase):
         result = run_agent(client, self.task)
         self.assertEqual(result["execution_failures"], 1)
         self.assertEqual(result["status"], "completed")
-        self.assertIn("ZeroDivisionError", result["events"][1]["observation"])
+        tool = next(e for e in result["events"] if e["type"] == "tool")
+        self.assertIn("ZeroDivisionError", tool["observation"])
 
     def test_step_limit_preserves_tool_result(self):
         result = run_agent(FakeClient([reply(name="list_files")]), self.task, max_steps=1)
@@ -163,7 +173,8 @@ class AgentTests(unittest.TestCase):
         ])
         result = run_agent(client, self.task)
         self.assertEqual(result["execution_failures"], 0)
-        self.assertEqual(result["events"][1]["status"], "success")
+        tool = next(e for e in result["events"] if e["type"] == "tool")
+        self.assertEqual(tool["status"], "success")
 
     def test_programming_errors_are_not_converted_to_external_failures(self):
         # 自己的程序错误应直接暴露，不能伪装成模型/API/执行环境的失败。

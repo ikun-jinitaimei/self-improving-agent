@@ -1,0 +1,417 @@
+{
+  "kind": "live",
+  "policy": "verify",
+  "model": "deepseek-flash",
+  "suite_version": "csv-v1",
+  "suite_fingerprint": "b17020c15f38a21b37cf811ce57c93b34f98ba7fb42291a72bfe544a25a6efb1",
+  "repeats": 3,
+  "max_steps": 6,
+  "backend": "docker",
+  "python": "3.12.3",
+  "openai_version": "3.13.0",
+  "provider_settings": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "base_url": "https://api.deepseek.com",
+    "key_env": "DEEPSEEK_API_KEY",
+    "temperature": 0,
+    "max_tokens": 2048,
+    "timeout_seconds": 60,
+    "keepalive_seconds": 120,
+    "extra_body": {
+      "thinking": {
+        "type": "disabled"
+      }
+    }
+  },
+  "schedule_seed": 0,
+  "max_api_calls": 432,
+  "planned_api_calls": 432,
+  "data_sha256": {
+    "sales_dev_23.csv": "84695438588fdc19a32c0d88c6a45ad40dbda92c1f7f285493e2cc11a7a3c3b9",
+    "sales_dev_7.csv": "20ed97cc26799dbca78ca8e855a29ebe0ce1513862a997bda9a67d2d2933d978",
+    "sales_dev_91.csv": "0e12cb38bb4beb681c0e83d6049f0630f9658152298fc4fe1c0c00590327976e"
+  },
+  "schedule": [
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_region",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_region",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_weighted",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_weighted",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_missing",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_missing",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_monthly",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_monthly",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_missing",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_missing",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_monthly",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_monthly",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_monthly",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_monthly",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_missing",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_missing",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_weighted",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_weighted",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_monthly",
+      "repeat": 1
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_monthly",
+      "repeat": 1
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_missing",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_missing",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_monthly",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_monthly",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_weighted",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_weighted",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_monthly",
+      "repeat": 1
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_monthly",
+      "repeat": 1
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_region",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_region",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_weighted",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_weighted",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_region",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_region",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_weighted",
+      "repeat": 1
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_weighted",
+      "repeat": 1
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_region",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_region",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_weighted",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_weighted",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_region",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_region",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_region",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_region",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_missing",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_missing",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_missing",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_missing",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_weighted",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_weighted",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_weighted",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_weighted",
+      "repeat": 2
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_monthly",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_monthly",
+      "repeat": 1
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_91_missing",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_91_missing",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_monthly",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_monthly",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_monthly",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_monthly",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_region",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_region",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_weighted",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_weighted",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_23_region",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_23_region",
+      "repeat": 2
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_missing",
+      "repeat": 1
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_missing",
+      "repeat": 1
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_missing",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_missing",
+      "repeat": 3
+    },
+    {
+      "policy": "verify",
+      "task_id": "task_dev_7_region",
+      "repeat": 3
+    },
+    {
+      "policy": "baseline",
+      "task_id": "task_dev_7_region",
+      "repeat": 3
+    }
+  ],
+  "status": "completed",
+  "source_sha256": {
+    "agent.py": "3ddd4fa46ad5d4670cba71c17a7e6fb18c261538484ae87fba7db964fe20baad",
+    "tools.py": "78598a46630a3cfe56b6962904ff334d7f4a938b543754666d96a54c9e274551",
+    "evaluate.py": "aa57ce6e98e325671821d427580b02499f157eaed2c9cba83602b4d1b9efeb8d",
+    "run_io.py": "a4ccc431158b9b4f6a3beb2b48076b8d3881f5a3446b31f6d33709963b48ffec",
+    "run_benchmark.py": "83b4687e356ad2fd01300917dee8bd1aedc411a35fa5b70bdfbb806bc740d8a3",
+    "benchmark_suite.py": "be9261a752496b7071e1b60fde586277aa53af8488eef1e3c2c7b2a2987eda71",
+    "execution.py": "31b4265fc54ecb41c0f5652db1275f92dc0aac6df92e6fc682854ab1d60d9bd1",
+    "offline_model.py": "0a640b66be6af32552e2b9c5db5e6cb1cb9a6c9ec92473ed7997034dc56d7003",
+    "providers.py": "e3fd2d95257928b2d1eaefbe51dc31940ec99335605ed8e5be2f8396fc5b60b7",
+    "experiments.py": "5a845305acb45094616280466619341f0875bd24e5e8d728837694170163d2df",
+    "reporting.py": "bc835f247269345ef0fb059fe4b12cec9c18b8824a417108ddc5efc24ea48ed1",
+    "demo.py": "5f12c2e942f2afc7bb5b945d69c6d2ab2e15b59101a0290611504ea7f2174c24",
+    "sessions.py": "3e3f4a35330353b0f3d27e68e963d403468f189ebbbec2952c5723668f31e151"
+  },
+  "manifest_sha256": "c524801813857a96d29bbac08a4e612b20a944f41991ad9781ff9e81312d1c40",
+  "local_run_id": "20261006T101710Z_4025fd13",
+  "local_session_id": "20261006T101710Z_7546be1e",
+  "disclosure": "Aggregate metrics and per-attempt ledger; raw messages remain local."
+}

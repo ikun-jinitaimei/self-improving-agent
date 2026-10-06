@@ -9,9 +9,16 @@ Keep methods general enough to evaluate across data analysis, coding and other e
 
 ## Current stage
 
-A minimal Agent loop, two tools, trajectory logging and deterministic evaluation
-are implemented. Three small CSV tasks have passed one real baseline run.
-This is an initial smoke benchmark, not evidence of generalization or self-improvement.
+This independent v0.2.2 research candidate adds Docker execution, reproducible
+dev/holdout experiments, explicit verification, session events and cost analysis.
+The original V0 workspace and commit d40a3b2 remain unchanged.
+On 24 synthetic CSV task IDs repeated three times per policy, real DeepSeek runs
+completed 144 attempts: dev baseline/verify 36/36 and 36/36; frozen holdout 36/36
+and 35/36. The verification failure exhausted the six-request budget.
+Verification used more computation without an observed accuracy benefit, so
+baseline remains the default. See docs/LIVE_RESULTS.md and evidence/.
+These results are not evidence of cross-domain generalization or learned
+self-improvement; no memory learning, parameter training or RL is implemented.
 
 The runtime follows:
 task input → model decision → tool execution → observation → next decision → final answer.
@@ -51,7 +58,9 @@ Compare improvements with a baseline and account for additional computation and 
 - Justify major dependencies and architectural changes by a concrete problem and evaluation.
 - Avoid premature frameworks, multi-agent orchestration, UI, RAG or memory features.
 - Do not expand the system merely to add features or produce a polished demo.
-- Current Python execution is not an OS sandbox; resolve this limitation before untrusted use.
+- Local Python execution is not an OS sandbox. Real candidate runs default to the
+  restricted Docker backend; boundary tests do not establish production safety.
+  Review SECURITY.md before untrusted or multi-user use.
 - Keep credentials, local personal notes, virtual environments and unreviewed logs out of Git.
 - Before publishing, inspect the exact files and repository history for private content.
 
