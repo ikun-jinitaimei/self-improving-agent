@@ -68,6 +68,27 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(sdk.call_args.kwargs["max_retries"], 0)
         self.assertEqual(settings.public()["keepalive_seconds"], 120)
 
+    def test_keyboard_interrupt_marks_batch_aborted_and_keeps_partial_trace(self):
+        """模拟 Ctrl+C 而非网络请求；已有轨迹保留，未运行策略也有完整分母。"""
+        data = self.root / "interrupt-data"
+        tasks = build_suite(data)[:1]
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+            create=Mock(side_effect=KeyboardInterrupt))))
+        directories = run_experiments(lambda task: client, tasks, data, self.root / "interrupted",
+            policies=["baseline", "verify"], kind="live", model="offline-test",
+            backend="local", max_api_calls=12)
+        self.assertEqual(client.chat.completions.create.call_count, 1)
+        for directory in directories:
+            manifest = json.loads((directory / "manifest.json").read_text())
+            summary = json.loads((directory / "summary.json").read_text())
+            self.assertEqual(manifest["status"], "aborted")
+            self.assertEqual(manifest["stop_reason"]["type"], "KeyboardInterrupt")
+            self.assertEqual(summary["task_count"], 1)
+            self.assertEqual(summary["passed"], 0)
+        self.assertEqual(len(list(directories[0].glob("task_*__r*.json"))), 1)
+        with self.assertRaisesRegex(ValueError, "尚未完成"):
+            compare_runs(*directories)
+
     def test_config_rejects_secrets_bad_urls_and_bad_numbers(self):
         invalid = [{"api_key": "not-a-real-key"}, {"base_url": "http://remote.example/v1"},
             {"base_url": "https://username:password@example.com/v1"},

@@ -110,10 +110,19 @@ def run_experiments(client_factory, tasks: list[dict], data_root: Path, output_r
             append_event(directory / f"{stem}.events.jsonl",
                          {**metadata, **event}, secrets=secrets)
 
-        with contextlib.redirect_stdout(io.StringIO()):
-            result = run_agent(client_factory(task["input"]), task["input"],
-                max_steps, model=settings.model, checkpoint=save, tool_executor=execute,
-                policy=policy, settings=settings, on_event=event_sink)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = run_agent(client_factory(task["input"]), task["input"],
+                    max_steps, model=settings.model, checkpoint=save, tool_executor=execute,
+                    policy=policy, settings=settings, on_event=event_sink)
+        except KeyboardInterrupt:
+            # 中断是明确的操作事件，不是成功交卷。保留已经写下的未完成轨迹，
+            # 下面统一把所有策略 manifest 标记为 aborted，并保留完整分母。
+            # 只捕获 Ctrl+C，不吞掉内部编程错误；强制杀进程仍需另行检查容器。
+            stop_reason = {"type": "KeyboardInterrupt", "task_id": task["task_id"],
+                           "repeat": repeat, "policy": policy}
+            print("Experiment interrupted; remaining attempts were NOT run.")
+            break
         prediction = {"task_id": task["task_id"], "answer": result["answer"]}
         result["evaluation"] = evaluate_tasks([task], [prediction] if result["answer"] is not None else [])[0]
         save(result)

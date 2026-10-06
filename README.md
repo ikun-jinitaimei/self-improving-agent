@@ -2,7 +2,23 @@
 
 一个可读、可复现的工具调用 Agent 实验项目：CSV 任务 → 模型决策 → 工具执行 → 反馈 → 候选答案 → 可选复核 → 确定性评分 → 轨迹与配对报告。
 
-当前是独立研究候选版 v0.2.1：可接受自由 CSV 问题、配置兼容模型端点，并组织真实对照实验。V0 原工作区与提交 `d40a3b2` 保留不动。Self-Improving 是研究方向，**尚未实现参数学习、记忆学习或 RL**；复核是测试时计算策略，不是训练。
+当前是独立研究候选版 v0.2.2：可接受自由 CSV 问题、配置兼容模型端点，并组织真实对照实验。V0 原工作区与提交 `d40a3b2` 保留不动。Self-Improving 是研究方向，**尚未实现参数学习、记忆学习或 RL**；复核是测试时计算策略，不是训练。
+
+## 本机 Windows 的统一入口
+
+已经配置好 D 盘 Ubuntu / Docker 的本机，无需反复切换目录或 Python 环境：
+
+```powershell
+& "D:\AgentRuntime\Run-Agent.ps1" doctor
+& "D:\AgentRuntime\Run-Agent.ps1" demo --split dev --task-id task_dev_7_monthly
+& "D:\AgentRuntime\Run-Agent.ps1" run --policy both --split dev --task-id task_dev_7_monthly --max-api-calls 12
+```
+
+该脚本是本机环境入口，不是下载仓库后自动拥有的文件。其他机器使用下方的
+通用 Python / agent-lab 命令。doctor 不联网；run 请求真实模型并收费。
+统一入口读取候选版唯一的私有凭据文件，记录默认集中到 D 盘，不修改原 V0。
+`key_available=true` 只表示读到 Key；2026-10-06 的实际 probe 已返回 `OK`。
+Windows `.demo_env` 的 doctor 找不到 Ubuntu Docker，不等于 Linux Engine 未安装。
 
 ## 两分钟离线演示
 
@@ -97,7 +113,7 @@ python -X utf8 demo.py run --policy both --split dev --repeats 3 --max-api-calls
 python -X utf8 demo.py run --policy both --split holdout --repeats 3 --max-api-calls 432
 ```
 
-真实调用收费。默认沿用原项目 deepseek-flash；用 `--model` 指定账户当前有效的模型 ID，probe 检查是否可用。公开配置默认 timeout=60 秒、重试关闭、temperature=0、非思考模式、max_tokens=2048；温度 0 不保证复现。`--dry-run` 不创建文件/请求 API，只显示最多请求次数，不估算真实费用。
+真实调用收费。默认沿用原项目 deepseek-flash；用 `--model` 指定账户当前有效的模型 ID，probe 检查是否可用。公开配置默认 timeout=60 秒、keepalive=120 秒、重试关闭、temperature=0、非思考模式、max_tokens=2048；温度 0 不保证复现。连接保留期用于覆盖工具执行间隔，不是自动重试。`--dry-run` 不创建文件/请求 API，只显示最多请求次数，不估算真实费用。
 
 整批 `--max-api-calls` 默认 72。若任务数 × repeats × 策略数 × max-steps 超过上限，会在创建会话/请求前拒绝；它是请求次数上限，**不是人民币硬预算**。认证、权限或模型端点错误会停止整批后续请求，保存第一条失败和 aborted 状态；未运行题保留在分母里，不生成完整 comparison.md。普通答错/工具错误仍按计划执行。
 
@@ -136,14 +152,23 @@ python -X utf8 demo.py inspect "TRACE_JSON"
 
 比较器拒绝 mock/live 混比、不同题目/模型/预算/后端/版本与不完整实验；展示恢复、退化和计算代价，不宣称统计显著性。缺失 token 是未知，不是零费用。completed 是合法交卷，passed 才是正确答案。未完成、未运行和失败题不会从分母消失。
 
+补充缓存 token、每题重复稳定性和费用区间：
+
+```powershell
+python -X utf8 analyze_run.py "EXPERIMENT_DIRECTORY" --prices configs/deepseek-prices-20261006.json
+```
+
+价格显式来自公开快照；输出金额是峰谷费率估算区间，不是账户账单，不自动换算汇率。
+缺失用量时金额为 unknown / null。该分析不执行工具、不请求模型，不修改历史记录。
+
 ## 验收与边界
 
 ```powershell
 python -X utf8 -m unittest discover -s tests -v
 ```
 
-当前 Windows 63 个离线测试通过（含原有 19 项），7 项 Docker 集成默认跳过；本机 WSL Ubuntu 24.04.5 上显式启用后，**70 项全部通过，含 7 项真实容器边界测试**。核实了实际 CPU/内存/进程限额、断网、只读数据、凭据/答案不可见、非 root 与超时清理。见 [验收说明](docs/ACCEPTANCE.md) 和 [迭代记录](docs/ITERATION_LOG.md)。Windows/Linux、Python 3.12/3.13 CI 配置已提供，尚未上传运行，不能称为云端 CI 通过。本轮真实 API 探针返回 AuthenticationError，新版尚无真实模型 benchmark。
+当前本机 Windows 发现 80 项测试，73 个离线测试通过，7 项 Docker 集成默认跳过；此前本机 WSL Ubuntu 24.04.5 上显式启用后，70 项全部通过，含 7 项真实容器边界测试。核实了实际 CPU/内存/进程限额、断网、只读数据、凭据/答案不可见、非 root 与超时清理。v0.2.2 的完整容器回归及云端 CI 状态以 [验收说明](docs/ACCEPTANCE.md) 为准，不把旧测试数当作新版本实测。真实 API 已成功，单题存在真实成功和格式失败；完整开发集实验正在按冻结代码运行。
 
 历史 V0 的 3/3 真实成绩见 [BASELINE_RESULTS.md](BASELINE_RESULTS.md)，不是新版 24 题成绩。V0 脚本入口保留，本地执行风险也保留；新版对外演示请用 demo.py。
 
-详见 [演示流程](docs/DEMO_RUNBOOK.md)、[实验计划](docs/EXPERIMENT_PLAN.md)、[安全边界](SECURITY.md)、[简历表述](docs/RESUME_NOTES.md)。凭据、环境、未审阅日志不提交 Git，分享报告前仍需审阅。公开许可证尚未选择；未代作者决定许可条款。
+详见 [演示流程](docs/DEMO_RUNBOOK.md)、[实验计划](docs/EXPERIMENT_PLAN.md)、[研究定位](docs/RESEARCH_NOTES.md)、[安全边界](SECURITY.md)、[简历表述](docs/RESUME_NOTES.md)。凭据、环境、未审阅日志不提交 Git，分享报告前仍需审阅。公开许可证尚未选择；未代作者决定许可条款。

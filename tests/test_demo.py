@@ -294,6 +294,8 @@ class DemoTests(unittest.TestCase):
         self.assertNotIn("reference_answer", json.dumps(requests))
         self.assertEqual(len(requests), 5)
         self.assertIn("independently check", requests[3]["messages"][-1]["content"])
+        self.assertIn("ONLY the final JSON object", requests[3]["messages"][-1]["content"])
+        self.assertIn("No explanations", requests[3]["messages"][-1]["content"])
 
 
 if __name__ == "__main__":

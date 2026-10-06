@@ -327,7 +327,11 @@ def run_agent(
                     "Before submitting, independently check your candidate answer with "
                     "at least one new tool call. Re-read the supplied CSV; check filters, "
                     "returns, missing values and units. Do not access reference answers. "
-                    "Use an alternative calculation where possible, then return the final JSON."
+                    "Use an alternative calculation where possible. This is a tool-based "
+                    "check, not a written review: keep verification notes in tool outputs. "
+                    "After checking, respond with ONLY the final JSON object matching the "
+                    "original value types, with unquoted numbers. No explanations, "
+                    "verification summaries, Markdown, or text outside the JSON object."
                 )})
                 emit("turn_end", status="verification_requested")
                 save()
