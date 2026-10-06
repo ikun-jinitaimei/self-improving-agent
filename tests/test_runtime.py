@@ -57,11 +57,22 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("tools", options)
         self.assertNotIn("api_key", settings.public())
 
+    def test_client_keeps_connections_without_hidden_retries(self):
+        """只检查 HTTP 客户端配置，不联网；连接保留期不等于增加重试次数。"""
+        settings = load_settings(self.config({"keepalive_seconds": 120}))
+        with patch("providers.resolve_key", return_value="offline-test-key"), \
+             patch("providers.DefaultHttpxClient") as http_client, \
+             patch("providers.OpenAI") as sdk:
+            configured_client(settings)
+        self.assertEqual(http_client.call_args.kwargs["limits"].keepalive_expiry, 120)
+        self.assertEqual(sdk.call_args.kwargs["max_retries"], 0)
+        self.assertEqual(settings.public()["keepalive_seconds"], 120)
+
     def test_config_rejects_secrets_bad_urls_and_bad_numbers(self):
         invalid = [{"api_key": "not-a-real-key"}, {"base_url": "http://remote.example/v1"},
             {"base_url": "https://username:password@example.com/v1"},
             {"base_url": "https://example.com/v1?key=secret"},
-            {"max_tokens": True}, {"timeout_seconds": float("nan")},
+            {"max_tokens": True}, {"timeout_seconds": float("nan")}, {"keepalive_seconds": 0},
             {"temperature": -1}, {"extra_body": {"messages": []}}]
         for data in invalid:
             with self.subTest(config=data), self.assertRaises(ValueError):

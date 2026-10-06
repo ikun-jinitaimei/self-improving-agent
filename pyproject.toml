@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "self-improving-agent-lab"
-version = "0.2.1"
+version = "0.2.2"
 description = "A transparent tool-calling agent with reproducible verification experiments"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,5 +17,5 @@ agent-lab = "demo:cli"
 py-modules = [
   "agent", "tools", "evaluate", "run_io", "run_benchmark",
   "benchmark_suite", "execution", "offline_model", "experiments", "reporting", "demo",
-  "providers", "sessions"
+  "providers", "sessions", "analyze_run"
 ]

@@ -12,7 +12,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
-from openai import OpenAI
+import httpx2
+from openai import DefaultHttpxClient, OpenAI
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class ModelSettings:
     temperature: float = 0
     max_tokens: int = 2048
     timeout_seconds: float = 60
+    keepalive_seconds: float = 120
     extra_body: dict = field(default_factory=lambda: {"thinking": {"type": "disabled"}})
 
     def public(self) -> dict:
@@ -61,8 +63,10 @@ def load_settings(path: Path | None = None, *, model: str | None = None) -> Mode
         raise ValueError("base_url 不能含凭据、查询参数或 fragment")
     if type(settings.max_tokens) is not int or settings.max_tokens < 1:
         raise ValueError("max_tokens 必须是正整数")
-    if type(settings.timeout_seconds) not in (int, float) or not math.isfinite(settings.timeout_seconds) or settings.timeout_seconds <= 0:
-        raise ValueError("timeout_seconds 必须为正数")
+    for key in ("timeout_seconds", "keepalive_seconds"):
+        value = getattr(settings, key)
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{key} 必须为正数")
     if type(settings.temperature) not in (int, float) or not 0 <= settings.temperature <= 2:
         raise ValueError("temperature 必须在 0..2 范围内")
     if not isinstance(settings.extra_body, dict):
@@ -92,8 +96,14 @@ def configured_client(settings: ModelSettings, key_file: Path | None = None) -> 
     key = resolve_key(settings, key_file)
     if not key:
         raise RuntimeError(f"没有找到 {settings.key_env}；请运行 configure 或在本地设置环境变量。")
+    # 本机 WSL 出现过间歇性 ConnectTimeout；SDK 默认空闲连接仅保留 5 秒，
+    # Docker 工具通常耗时 8–15 秒，下一轮容易需要重新建连。保留 120 秒，
+    # 让一个任务的多轮请求尽量复用连接。短请求诊断 6/6 通过，但不宣称
+    # 这能消除所有网络故障。关闭自动重试；真实失败仍进入实验结果。
+    http_client = DefaultHttpxClient(
+        limits=httpx2.Limits(keepalive_expiry=settings.keepalive_seconds))
     return OpenAI(api_key=key, base_url=settings.base_url,
-                  timeout=settings.timeout_seconds, max_retries=0)
+                  timeout=settings.timeout_seconds, max_retries=0, http_client=http_client)
 
 
 def save_key(settings: ModelSettings, key_file: Path, key: str) -> None:

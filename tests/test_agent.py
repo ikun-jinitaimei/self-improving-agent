@@ -19,7 +19,7 @@ import httpx2
 from openai import APIConnectionError
 from openai.types.chat import ChatCompletion
 
-from agent import load_task, parse_final_answer, run_agent
+from agent import build_user_message, load_task, parse_final_answer, run_agent
 from run_benchmark import run_benchmark, summarize_results
 from run_io import write_json
 from tools import execute_tool
@@ -56,6 +56,15 @@ class FakeClient:
 
 
 class AgentTests(unittest.TestCase):
+    def test_public_prompt_explains_json_value_types_without_answers(self):
+        """说明数字不能加引号；消息只使用 input，不含标准答案或评分反馈。"""
+        message = build_user_message({"question": "Compute a weighted price.",
+            "data_file": "sales.csv", "answer_format": {"price": "number"}})
+        self.assertIn("type declaration, not an example answer", message)
+        self.assertIn("unquoted JSON numeric values", message)
+        self.assertIn('"price": "number"', message)
+        self.assertNotIn("reference_answer", message)
+
     def setUp(self):
         self.task = load_task("task_001")
         self.answer = '{"region":"South","sales_amount":23478.0}'

@@ -140,7 +140,12 @@ def load_task(task_id: str) -> dict[str, Any]:
 
 
 def build_user_message(task_input: dict[str, Any]) -> str:
-    """把结构化任务信息整理成一条发给模型的用户消息。"""
+    """把公开任务整理成模型消息；answer_format 是类型声明，不是答案示例。
+
+    真实加权均价回归中，模型计算正确却提交了带引号的数字。明确 JSON 类型
+    的含义，不向模型提供标准答案，也不在解析器中把字符串偷偷转成数字。
+    baseline 和 verify 共用这条说明，不能只改其中一组以影响对照。
+    """
     question = task_input["question"]
     data_file = task_input["data_file"]
     answer_format = task_input["answer_format"]
@@ -148,8 +153,10 @@ def build_user_message(task_input: dict[str, Any]) -> str:
     return (
         f"Question:\n{question}\n\n"
         f"Data file (relative to the project root):\n{data_file}\n\n"
-        "Required final answer format:\n"
-        f"{json.dumps(answer_format, ensure_ascii=False, indent=2)}"
+        "Required JSON value types (this is a type declaration, not an example answer):\n"
+        f"{json.dumps(answer_format, ensure_ascii=False, indent=2)}\n\n"
+        "For number and integer fields, use unquoted JSON numeric values. "
+        "Do not put numeric results in strings. String fields must contain JSON strings."
     )
 
 
@@ -281,6 +288,12 @@ def run_agent(
             # 不保存原始 HTTP 错误体/请求头，以免将凭据写入实验文件。
             # 只捕获 SDK 的 API 异常，TypeError 等内部错误保留 traceback。
             result["usage_complete"] = False
+            # SDK 的 APITimeoutError 无法区分连接阶段与服务响应阶段。
+            # 只记录异常类/状态码，不存原始异常文本、请求头或响应体；这些
+            # 元数据用于分析环境故障，不回传模型，也不触发自动重试。
+            emit("api_error", error_type=type(error).__name__,
+                 cause_type=type(error.__cause__).__name__ if error.__cause__ else None,
+                 status_code=getattr(error, "status_code", None))
             return fail("api_error", type(error).__name__)
         result["responses_received"] += 1
         usage = response.usage.model_dump() if response.usage else None
